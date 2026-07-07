@@ -1,0 +1,34 @@
+{
+	"schemaVersion": 1,
+	"id": "portable-mob-behaviour",
+	"version": "${version}",
+	"name": "Portable Mob Behaviour",
+	"description": "A mod for those who want highly dynamic, customizable, portable mob AI skills like 'can use shield', 'can use spear', 'can use mace'.",
+	"authors": [
+		"Avalanche1510"
+	],
+	"contact": {
+		"homepage": "https://fabricmc.net/",
+		"sources": "https://github.com/Avalanche1510/Portable-Mob-Behaviour"
+	},
+	"license": "CC0-1.0",
+	"icon": "assets/portable-mob-behaviour/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"com.pmb.PortableMobBehaviour"
+		],
+		"fabric-datagen": [
+			"com.pmb.PortableMobBehaviourDataGenerator"
+		]
+	},
+	"mixins": [
+		"portable-mob-behaviour.mixins.json"
+	],
+	"depends": {
+		"fabricloader": ">=0.19.3",
+		"minecraft": "~26.1.1",
+		"java": ">=25",
+		"fabric-api": "*"
+	}
+}
