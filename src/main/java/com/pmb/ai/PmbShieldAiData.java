@@ -17,6 +17,7 @@ public class PmbShieldAiData {
 	private static final float DEFAULT_BLOCKING_ANGLE = 30.0F;
 	private static final int DEFAULT_AXE_DISABLE_COOLDOWN_TICKS = 100;
 	private static final int DEFAULT_SHIELD_TOUGHNESS = 1;
+	private static final int DEFAULT_CRIT_TOUGHNESS_DAMAGE = 1;
 	private static final float DEFAULT_SPEED_REDUCTION = 0.5F;
 	private static final int MAX_USE_TICKS = 72000;
 	private static final int MAX_SHIELD_TOUGHNESS = 100;
@@ -31,6 +32,7 @@ public class PmbShieldAiData {
 	private float blockingAngle = DEFAULT_BLOCKING_ANGLE;
 	private int axeDisableCooldownTicks = DEFAULT_AXE_DISABLE_COOLDOWN_TICKS;
 	private int shieldToughness = DEFAULT_SHIELD_TOUGHNESS;
+	private int critToughnessDamage = DEFAULT_CRIT_TOUGHNESS_DAMAGE;
 	private float speedReduction = DEFAULT_SPEED_REDUCTION;
 	private int useTicks;
 	private int cooldown;
@@ -79,6 +81,10 @@ public class PmbShieldAiData {
 
 	public int shieldToughness() {
 		return shieldToughness;
+	}
+
+	public int critToughnessDamage() {
+		return critToughnessDamage;
 	}
 
 	public float speedReduction() {
@@ -131,9 +137,9 @@ public class PmbShieldAiData {
 		}
 	}
 
-	public boolean consumeShieldToughness() {
+	public boolean consumeShieldToughness(int amount) {
 		if (remainingShieldToughness > 0) {
-			remainingShieldToughness--;
+			remainingShieldToughness = Math.max(0, remainingShieldToughness - Math.max(1, amount));
 		}
 		return remainingShieldToughness <= 0;
 	}
@@ -162,6 +168,7 @@ public class PmbShieldAiData {
 		output.putFloat("blockingAngle", blockingAngle);
 		output.putInt("axeDisableCooldownTicks", axeDisableCooldownTicks);
 		output.putInt("shieldToughness", shieldToughness);
+		output.putInt("critToughnessDamage", critToughnessDamage);
 		output.putFloat("speedReduction", speedReduction);
 	}
 
@@ -176,6 +183,7 @@ public class PmbShieldAiData {
 		blockingAngle = DEFAULT_BLOCKING_ANGLE;
 		axeDisableCooldownTicks = DEFAULT_AXE_DISABLE_COOLDOWN_TICKS;
 		shieldToughness = DEFAULT_SHIELD_TOUGHNESS;
+		critToughnessDamage = DEFAULT_CRIT_TOUGHNESS_DAMAGE;
 		speedReduction = DEFAULT_SPEED_REDUCTION;
 		useTicks = 0;
 		cooldown = 0;
@@ -186,8 +194,9 @@ public class PmbShieldAiData {
 	private void readNested(ValueInput shieldInput) {
 		if (!hasAnyShieldField(shieldInput, "enable", "range", "shieldRange", "chance", "shieldChance",
 				"minUseTicks", "shieldMinUseTicks", "maxUseTicks", "shieldMaxUseTicks", "cooldownTicks",
-				"shieldCooldownTicks", "blockingAngle", "axeDisableCooldownTicks", "shieldToughness", "speedReduction",
-				"shieldSpeedReduction", "movementSpeedReduction", "speedReductionPercent")) {
+				"shieldCooldownTicks", "blockingAngle", "axeDisableCooldownTicks", "shieldToughness",
+				"critToughnessDamage", "speedReduction", "shieldSpeedReduction", "movementSpeedReduction",
+				"speedReductionPercent")) {
 			clear();
 			return;
 		}
@@ -206,6 +215,8 @@ public class PmbShieldAiData {
 		axeDisableCooldownTicks = clamp(getIntOr(shieldInput, DEFAULT_AXE_DISABLE_COOLDOWN_TICKS,
 				"axeDisableCooldownTicks"), 0, 600);
 		shieldToughness = clamp(getIntOr(shieldInput, DEFAULT_SHIELD_TOUGHNESS, "shieldToughness"), 1,
+				MAX_SHIELD_TOUGHNESS);
+		critToughnessDamage = clamp(getIntOr(shieldInput, DEFAULT_CRIT_TOUGHNESS_DAMAGE, "critToughnessDamage"), 1,
 				MAX_SHIELD_TOUGHNESS);
 		speedReduction = readSpeedReduction(shieldInput);
 		useTicks = 0;
@@ -232,6 +243,7 @@ public class PmbShieldAiData {
 		blockingAngle = DEFAULT_BLOCKING_ANGLE;
 		axeDisableCooldownTicks = DEFAULT_AXE_DISABLE_COOLDOWN_TICKS;
 		shieldToughness = DEFAULT_SHIELD_TOUGHNESS;
+		critToughnessDamage = DEFAULT_CRIT_TOUGHNESS_DAMAGE;
 		speedReduction = readSpeedReduction(aiInput);
 		useTicks = 0;
 		cooldown = 0;

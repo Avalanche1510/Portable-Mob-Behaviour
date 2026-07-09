@@ -1,20 +1,28 @@
 package com.pmb.mixin;
 
 import com.pmb.ai.PmbAiHolder;
+import com.pmb.ai.PmbCriticalAttackHolder;
 import com.pmb.ai.PmbShieldAiData;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.particles.BlockParticleOption;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.BlocksAttacks;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
@@ -53,7 +61,8 @@ public abstract class PmbLivingEntityShieldBlockingMixin {
 		}
 
 		double configuredAngle = Math.toRadians(shieldAi.blockingAngle());
-		double effectiveAngle = angle <= configuredAngle ? 0.0D : Math.PI;
+		double stableAngle = pmb$stableShieldBlockingAngle(source, angle);
+		double effectiveAngle = stableAngle <= configuredAngle ? 0.0D : Math.PI;
 		return blocksAttacks.resolveBlockedDamage(source, amount, effectiveAngle);
 	}
 
@@ -96,7 +105,9 @@ public abstract class PmbLivingEntityShieldBlockingMixin {
 		LivingEntity self = pmb$self();
 		if (!(self instanceof Player)) {
 			hurtNonPlayerBlockingItem(blockingItem, blocksAttacks, blockedDamage);
-			disableNonPlayerShieldIfNeeded(level, source, blockingItem, blocksAttacks, shieldAi);
+			if (!disableNonPlayerShieldIfNeeded(level, source, blockingItem, blocksAttacks, shieldAi)) {
+				playNonBreakingShieldHitEffect(level, source);
+			}
 		}
 	}
 
@@ -107,20 +118,61 @@ public abstract class PmbLivingEntityShieldBlockingMixin {
 		}
 	}
 
-	private void disableNonPlayerShieldIfNeeded(ServerLevel level, DamageSource source, ItemStack blockingItem,
+	private boolean disableNonPlayerShieldIfNeeded(ServerLevel level, DamageSource source, ItemStack blockingItem,
 			BlocksAttacks blocksAttacks, PmbShieldAiData shieldAi) {
 		float disableSeconds = getDisableSeconds(source);
 		if (disableSeconds <= 0.0F) {
-			return;
+			return false;
 		}
 
-		if (!shieldAi.consumeShieldToughness()) {
-			return;
+		boolean criticalAttack = isCriticalShieldDisablingAttack(source);
+		int toughnessDamage = criticalAttack ? shieldAi.critToughnessDamage() : 1;
+		if (!shieldAi.consumeShieldToughness(toughnessDamage)) {
+			return false;
 		}
 
+		playShieldBreakEffect(level);
 		blocksAttacks.disable(level, pmb$self(), disableSeconds, blockingItem);
 		shieldAi.setUseTicks(0);
 		shieldAi.setDisabledCooldown(shieldAi.axeDisableCooldownTicks());
+		return true;
+	}
+
+	private void playNonBreakingShieldHitEffect(ServerLevel level, DamageSource source) {
+		boolean shieldDisablingAttack = getDisableSeconds(source) > 0.0F;
+		boolean criticalShieldDisablingAttack = shieldDisablingAttack && isCriticalShieldDisablingAttack(source);
+		int particleCount = criticalShieldDisablingAttack ? 10 : shieldDisablingAttack ? 6 : 3;
+		Vec3 position = pmb$shieldFeedbackPosition();
+
+		if (criticalShieldDisablingAttack) {
+			level.playSound(null, position.x, position.y, position.z, SoundEvents.ZOMBIE_ATTACK_WOODEN_DOOR,
+					SoundSource.HOSTILE, 0.8F, 1.0F);
+		}
+
+		spawnOakDoorParticles(level, position, particleCount, 0.2D, 0.25D, 0.2D, 0.035D);
+	}
+
+	private void playShieldBreakEffect(ServerLevel level) {
+		Vec3 position = pmb$shieldFeedbackPosition();
+		level.playSound(null, position.x, position.y, position.z, SoundEvents.ZOMBIE_BREAK_WOODEN_DOOR,
+				SoundSource.HOSTILE, 1.0F, 0.9F);
+		spawnOakDoorParticles(level, position, 24, 0.4D, 0.5D, 0.4D, 0.08D);
+	}
+
+	private Vec3 pmb$shieldFeedbackPosition() {
+		LivingEntity self = pmb$self();
+		Vec3 forward = self.calculateViewVector(0.0F, self.getYHeadRot()).multiply(1.0D, 0.0D, 1.0D).normalize();
+		double x = self.getX() + forward.x * 0.45D;
+		double y = self.getY() + self.getBbHeight() * 0.65D;
+		double z = self.getZ() + forward.z * 0.45D;
+		return new Vec3(x, y, z);
+	}
+
+	private void spawnOakDoorParticles(ServerLevel level, Vec3 position, int count, double xSpread, double ySpread,
+			double zSpread, double speed) {
+		BlockParticleOption particles = new BlockParticleOption(ParticleTypes.BLOCK,
+				Blocks.OAK_DOOR.defaultBlockState());
+		level.sendParticles(particles, position.x, position.y, position.z, count, xSpread, ySpread, zSpread, speed);
 	}
 
 	private float getDisableSeconds(DamageSource source) {
@@ -137,6 +189,11 @@ public abstract class PmbLivingEntityShieldBlockingMixin {
 		}
 
 		return 0.0F;
+	}
+
+	private boolean isCriticalShieldDisablingAttack(DamageSource source) {
+		return source.getDirectEntity() instanceof PmbCriticalAttackHolder criticalAttackHolder
+				&& criticalAttackHolder.pmb$isCriticalAttack();
 	}
 
 	@Unique
@@ -161,6 +218,44 @@ public abstract class PmbLivingEntityShieldBlockingMixin {
 	}
 
 	@Unique
+	private double pmb$stableShieldBlockingAngle(DamageSource source, double fallbackAngle) {
+		LivingEntity self = pmb$self();
+		Vec3 sourcePosition = pmb$stableDamageSourcePosition(source);
+		if (sourcePosition == null) {
+			return fallbackAngle;
+		}
+
+		Vec3 incomingDirection = new Vec3(sourcePosition.x - self.getX(), 0.0D, sourcePosition.z - self.getZ());
+		if (incomingDirection.lengthSqr() < 1.0E-7D) {
+			return fallbackAngle;
+		}
+
+		Vec3 shieldDirection = self.calculateViewVector(0.0F, self.getYHeadRot()).multiply(1.0D, 0.0D, 1.0D);
+		if (shieldDirection.lengthSqr() < 1.0E-7D) {
+			return fallbackAngle;
+		}
+
+		double dot = incomingDirection.normalize().dot(shieldDirection.normalize());
+		return Math.acos(Math.max(-1.0D, Math.min(1.0D, dot)));
+	}
+
+	@Unique
+	private Vec3 pmb$stableDamageSourcePosition(DamageSource source) {
+		LivingEntity self = pmb$self();
+		Entity directEntity = source.getDirectEntity();
+		if (directEntity != null && directEntity != self) {
+			return directEntity.position();
+		}
+
+		Entity causingEntity = source.getEntity();
+		if (causingEntity != null && causingEntity != self) {
+			return causingEntity.position();
+		}
+
+		return source.getSourcePosition();
+	}
+
+	@Unique
 	private ItemStack pmb$getPmbBlockingItem() {
 		ItemStack vanillaBlockingItem = getItemBlockingWith();
 		if (vanillaBlockingItem != null) {
@@ -169,7 +264,7 @@ public abstract class PmbLivingEntityShieldBlockingMixin {
 
 		PmbShieldAiData shieldAi = pmb$shieldAi();
 		LivingEntity self = pmb$self();
-		if (shieldAi.canUse() && shieldAi.useTicks() > 0 && self.isUsingItem()
+		if (shieldAi.canUse() && self.isUsingItem()
 				&& self.getUsedItemHand() == InteractionHand.OFF_HAND
 				&& self.getOffhandItem().is(Items.SHIELD)) {
 			return self.getOffhandItem();

@@ -5,7 +5,8 @@
 	"mixins": [
 		"PmbLivingEntityAiMixin",
 		"PmbLivingEntityShieldBlockingMixin",
-		"PmbMobShieldMixin"
+		"PmbMobShieldMixin",
+		"PmbPlayerCriticalAttackMixin"
 	],
 	"client": [
 		"client.PmbAbstractZombieModelShieldPoseMixin",

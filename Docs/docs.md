@@ -23,6 +23,7 @@ Available parameters and the syntax used to define the data structure are given 
                     blockingAngle: <float>,
                     axeDisableCooldownTicks: <int>,
                     shieldToughness: <int>,
+                    critToughnessDamage: <int>,
                     speedReduction: <float>
                 }
         }
@@ -74,6 +75,10 @@ Conditions for raising a shield:
 
 PMB-controlled shields can block from the first shield-use tick and do not use the vanilla player's initial shield activation delay.
 
+For PMB-controlled shields, the blocking angle is resolved from the attacker's entity position when available, rather than only from the raw damage-source position. This avoids close-range or extended-interaction-range source positions flipping across the defender and causing apparent shield penetration.
+
+If the server still sees the mob actively using its off-hand shield, PMB can continue recognizing the shield during the final transition tick even if the internal shield-use counter has just reached zero.
+
 When the shield is raised, it takes durability damage from blocked attacks.
 
 Attacks capable of disabling shields consume one point of shield toughness.
@@ -83,6 +88,8 @@ When the configured number of such attacks is reached during the current shield-
 The counter resets when the normal cooldown ends and before a new round after a forced cooldown.
 
 Shield recoil, durability loss, and shield toughness consumption occur at most once per normal damage interval. Additional attacks ignored by the entity's damage cooldown do not accumulate these effects.
+
+A fully blocked attack does not produce vanilla critical-hit particles, but the mod captures the player's vanilla critical-hit eligibility before attack charge is reset. A critical shield-disabling attack consumes critToughnessDamage points. If the shield remains intact, a critical shield-disabling attack plays the zombie wooden-door attack sound and emits 10 oak-door debris particles, a normal shield-disabling attack emits 6 particles, and any other blocked attack emits 3 particles. A true shield break instead plays the zombie wooden-door break sound and emits 24 particles.
 
 Entities from the Guard Villagers namespace are excluded from this behaviour to avoid conflicting with that mod.
 
@@ -101,6 +108,7 @@ shield:
         blockingAngle: <float>,
         axeDisableCooldownTicks: <int>,
         shieldToughness: <int>,
+        critToughnessDamage: <int>,
         speedReduction: <float>
     }
 ```
@@ -166,6 +174,13 @@ Range: [1, 100]
 Default: 1
 Refresh: Resets after the normal cooldown ends and before a new round after a forced cooldown
 
+critToughnessDamage
+Meaning: Shield toughness consumed by a shield-disabling attack that meets the vanilla player critical-hit conditions
+Type: integer
+Range: [1, 100]
+Default: 1
+Note: Normal shield-disabling attacks always consume 1 point; attacks that cannot disable shields consume none
+
 speedReduction
 Meaning: Movement speed reduction ratio while the shield is raised
 Type: float
@@ -187,9 +202,9 @@ Summon a zombie with an iron sword, a shield, and an iron helmet. Shield usage i
 summon zombie ~ ~ ~ {PmbAi:{shield:{enable:1b}}, equipment:{mainhand:{id:iron_sword}, offhand:{id:shield}, head:{id:iron_helmet}}}
 
 Summon a heavily armoured zombie with a diamond sword and shield.
-It can always raise its shield within 12 blocks, uses it for 4–8 seconds, has a 3-second normal cooldown, can block attacks from any direction, requires 3 shield-disabling attacks to break each round, has a 2.5-second forced cooldown after its shield is disabled, and loses 90% of its movement speed while shielding.
+It can always start to raise its shield within 12 blocks, uses it for 4–8 seconds, has a 3-second normal cooldown, can block attacks from any direction, has 3 shield toughness, takes 2 toughness damage from a critical shield-disabling attack, has a 2.5-second forced cooldown after its shield is disabled, and loses 90% of its movement speed while shielding.
 (This command is long; use a command block.)
-summon zombie ~ ~ ~ {PmbAi:{shield:{enable:1b, range:12.0f, shieldChance:1.0f, minUseTicks:80, maxUseTicks:160, cooldownTicks:60, blockingAngle:180.0f, axeDisableCooldownTicks:50, shieldToughness:3, speedReduction:0.9f}}, equipment:{mainhand:{id:diamond_sword}, offhand:{id:shield}, head:{id:diamond_helmet}, chest:{id:diamond_chestplate}, legs:{id:diamond_leggings}, feet:{id:diamond_boots}}}
+summon zombie ~ ~ ~ {PmbAi:{shield:{enable:1b, range:12.0f, shieldChance:1.0f, minUseTicks:80, maxUseTicks:160, cooldownTicks:60, blockingAngle:180.0f, axeDisableCooldownTicks:50, shieldToughness:3, critToughnessDamage:2, speedReduction:0.9f}}, equipment:{mainhand:{id:diamond_sword}, offhand:{id:shield}, head:{id:diamond_helmet}, chest:{id:diamond_chestplate}, legs:{id:diamond_leggings}, feet:{id:diamond_boots}}}
 
 Enable shield usage with default parameters on the nearest zombie that already has a shield in its off hand.
 data merge entity @e[type=zombie,sort=nearest,limit=1] {PmbAi:{shield:{enable:1b}}}

@@ -11,6 +11,17 @@ Year.Month.Day-No.
 
 ## Record
 
+### 26.7.9-3
+Added the integer shield parameter critToughnessDamage with a range of 1–100 and a default value of 1.
+
+The player's vanilla critical-hit eligibility is captured before attack charge resets. Critical shield-disabling attacks consume critToughnessDamage points, while normal shield-disabling attacks consume 1 point.
+
+A non-breaking critical shield-disabling hit plays the zombie wooden-door attack sound and emits 10 oak-door debris particles. A non-breaking normal shield-disabling hit emits 6 particles, and any other blocked hit emits 3 particles. A true shield break plays the zombie wooden-door break sound and emits 24 particles; the effects do not overlap on the final hit.
+
+PMB-controlled shields now continue to be recognized while the server still sees the mob actively using its off-hand shield, covering the final transition tick where the internal shield-use counter may have just reached zero.
+
+PMB shield angle checks now prefer the attacker's entity position over the raw damage-source position when available, avoiding close-range or extended-interaction-range source positions flipping across the defender and causing apparent shield penetration.
+
 ### 26.7.9-2
 Added the integer shield parameter shieldToughness.
 
