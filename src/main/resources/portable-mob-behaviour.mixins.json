@@ -3,7 +3,15 @@
 	"package": "com.pmb.mixin",
 	"compatibilityLevel": "JAVA_25",
 	"mixins": [
-		"ExampleMixin"
+		"PmbLivingEntityAiMixin",
+		"PmbLivingEntityShieldBlockingMixin",
+		"PmbMobShieldMixin"
+	],
+	"client": [
+		"client.PmbAbstractZombieModelShieldPoseMixin",
+		"client.PmbHumanoidMobRendererShieldPoseMixin",
+		"client.PmbIllagerModelShieldPoseMixin",
+		"client.PmbSkeletonModelShieldPoseMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1
