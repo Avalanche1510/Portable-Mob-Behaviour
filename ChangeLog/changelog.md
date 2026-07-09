@@ -14,6 +14,8 @@ Year.Month.Day-No.
 ### 26.7.9-1
 This mod was separated from the [Age of Cavalry](https://github.com/Avalanche1510/Age-of-Cavalry) mod and is now developed as an independent project.
 
+Add change log and documentations
+
 Implemented basic shield usage for mobs and correct shield-holding animations for supported humanoid mobs.
 Shield-holding animations are not guaranteed to look correct on non-humanoid mobs.
 
@@ -38,7 +40,4 @@ New parameters and structure:
                 }
         }
 }
-
-Add change log and documentations
-
 ```
