@@ -6,12 +6,14 @@ import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.BlocksAttacks;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -31,6 +33,14 @@ public abstract class PmbLivingEntityShieldBlockingMixin {
 	@Shadow
 	public abstract InteractionHand getUsedItemHand();
 
+	@Shadow
+	protected abstract void blockUsingItem(ServerLevel level, LivingEntity attacker);
+
+	@Redirect(method = "applyItemBlocking", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/LivingEntity;getItemBlockingWith()Lnet/minecraft/world/item/ItemStack;"))
+	private ItemStack pmb$getImmediateBlockingItem(LivingEntity entity) {
+		return pmb$getPmbBlockingItem();
+	}
+
 	@Redirect(method = "applyItemBlocking", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/item/component/BlocksAttacks;resolveBlockedDamage(Lnet/minecraft/world/damagesource/DamageSource;FD)F"))
 	private float pmb$resolveBlockedDamage(BlocksAttacks blocksAttacks, DamageSource source, float amount, double angle) {
 		if (pmb$isGuardVillagersEntity()) {
@@ -47,6 +57,16 @@ public abstract class PmbLivingEntityShieldBlockingMixin {
 		return blocksAttacks.resolveBlockedDamage(source, amount, effectiveAngle);
 	}
 
+	@Redirect(method = "applyItemBlocking", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/LivingEntity;blockUsingItem(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/entity/LivingEntity;)V"))
+	private void pmb$applyShieldRecoilOnce(LivingEntity defender, ServerLevel level, LivingEntity attacker,
+			ServerLevel methodLevel, DamageSource source, float amount) {
+		PmbShieldAiData shieldAi = pmb$shieldAi();
+		if (pmb$isGuardVillagersEntity() || !shieldAi.isConfigured() || !shieldAi.isEnabled()
+				|| pmb$canApplyShieldImpact(source)) {
+			blockUsingItem(level, attacker);
+		}
+	}
+
 	@Inject(method = "applyItemBlocking", at = @At("RETURN"))
 	private void pmb$afterItemBlocking(ServerLevel level, DamageSource source, float amount,
 			CallbackInfoReturnable<Float> info) {
@@ -59,8 +79,11 @@ public abstract class PmbLivingEntityShieldBlockingMixin {
 		if (blockedDamage <= 0.0F || !shieldAi.isConfigured() || !shieldAi.isEnabled()) {
 			return;
 		}
+		if (!pmb$canApplyShieldImpact(source)) {
+			return;
+		}
 
-		ItemStack blockingItem = getItemBlockingWith();
+		ItemStack blockingItem = pmb$getPmbBlockingItem();
 		if (blockingItem == null || blockingItem.isEmpty()) {
 			return;
 		}
@@ -88,6 +111,10 @@ public abstract class PmbLivingEntityShieldBlockingMixin {
 			BlocksAttacks blocksAttacks, PmbShieldAiData shieldAi) {
 		float disableSeconds = getDisableSeconds(source);
 		if (disableSeconds <= 0.0F) {
+			return;
+		}
+
+		if (!shieldAi.consumeShieldToughness()) {
 			return;
 		}
 
@@ -126,5 +153,28 @@ public abstract class PmbLivingEntityShieldBlockingMixin {
 	@Unique
 	private PmbShieldAiData pmb$shieldAi() {
 		return ((PmbAiHolder) this).pmb$getAiData().shield();
+	}
+
+	@Unique
+	private boolean pmb$canApplyShieldImpact(DamageSource source) {
+		return pmb$self().invulnerableTime <= 10 || source.is(DamageTypeTags.BYPASSES_COOLDOWN);
+	}
+
+	@Unique
+	private ItemStack pmb$getPmbBlockingItem() {
+		ItemStack vanillaBlockingItem = getItemBlockingWith();
+		if (vanillaBlockingItem != null) {
+			return vanillaBlockingItem;
+		}
+
+		PmbShieldAiData shieldAi = pmb$shieldAi();
+		LivingEntity self = pmb$self();
+		if (shieldAi.canUse() && shieldAi.useTicks() > 0 && self.isUsingItem()
+				&& self.getUsedItemHand() == InteractionHand.OFF_HAND
+				&& self.getOffhandItem().is(Items.SHIELD)) {
+			return self.getOffhandItem();
+		}
+
+		return null;
 	}
 }

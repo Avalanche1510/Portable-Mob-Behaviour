@@ -11,6 +11,23 @@ Year.Month.Day-No.
 
 ## Record
 
+### 26.7.9-2
+Added the integer shield parameter shieldToughness.
+
+It controls how many shield-disabling attacks are required to break the current shield-use round.
+
+The counter refreshes when the normal shield cooldown ends and before a new round after a forced cooldown.
+
+The default value is 1, preserving the previous behaviour.
+
+Fixed the vanilla shield activation delay leaving a mob visually shielding but still vulnerable during the first few ticks.
+
+PMB-controlled shields now block from the first shield-use tick, preventing rapid attacks from slipping through.
+
+Fixed repeated attacks accumulating shield-impact momentum while the target was still in its damage invulnerability interval.
+
+Shield recoil, durability damage, and shieldToughness consumption now occur at most once per valid damage interval. Attacks ignored by the normal damage cooldown can still be visually blocked, but no longer accumulate velocity or consume additional shield toughness.
+
 ### 26.7.9-1
 This mod was separated from the [Age of Cavalry](https://github.com/Avalanche1510/Age-of-Cavalry) mod and is now developed as an independent project.
 

@@ -16,8 +16,10 @@ public class PmbShieldAiData {
 	private static final int DEFAULT_COOLDOWN_TICKS = 40;
 	private static final float DEFAULT_BLOCKING_ANGLE = 30.0F;
 	private static final int DEFAULT_AXE_DISABLE_COOLDOWN_TICKS = 100;
+	private static final int DEFAULT_SHIELD_TOUGHNESS = 1;
 	private static final float DEFAULT_SPEED_REDUCTION = 0.5F;
 	private static final int MAX_USE_TICKS = 72000;
+	private static final int MAX_SHIELD_TOUGHNESS = 100;
 
 	private boolean configured;
 	private boolean enabled;
@@ -28,10 +30,12 @@ public class PmbShieldAiData {
 	private int cooldownTicks = DEFAULT_COOLDOWN_TICKS;
 	private float blockingAngle = DEFAULT_BLOCKING_ANGLE;
 	private int axeDisableCooldownTicks = DEFAULT_AXE_DISABLE_COOLDOWN_TICKS;
+	private int shieldToughness = DEFAULT_SHIELD_TOUGHNESS;
 	private float speedReduction = DEFAULT_SPEED_REDUCTION;
 	private int useTicks;
 	private int cooldown;
 	private int disabledCooldown;
+	private int remainingShieldToughness = DEFAULT_SHIELD_TOUGHNESS;
 
 	public boolean isConfigured() {
 		return configured;
@@ -73,6 +77,10 @@ public class PmbShieldAiData {
 		return axeDisableCooldownTicks;
 	}
 
+	public int shieldToughness() {
+		return shieldToughness;
+	}
+
 	public float speedReduction() {
 		return speedReduction;
 	}
@@ -91,6 +99,9 @@ public class PmbShieldAiData {
 
 	public void setCooldown(int cooldown) {
 		this.cooldown = Math.max(0, cooldown);
+		if (this.cooldown == 0) {
+			resetShieldToughness();
+		}
 	}
 
 	public int disabledCooldown() {
@@ -99,16 +110,36 @@ public class PmbShieldAiData {
 
 	public void setDisabledCooldown(int disabledCooldown) {
 		this.disabledCooldown = Math.max(0, disabledCooldown);
+		if (this.disabledCooldown == 0) {
+			resetShieldToughness();
+		}
 	}
 
 	public void tickCooldowns() {
 		if (cooldown > 0) {
 			cooldown--;
+			if (cooldown == 0) {
+				resetShieldToughness();
+			}
 		}
 
 		if (disabledCooldown > 0) {
 			disabledCooldown--;
+			if (disabledCooldown == 0) {
+				resetShieldToughness();
+			}
 		}
+	}
+
+	public boolean consumeShieldToughness() {
+		if (remainingShieldToughness > 0) {
+			remainingShieldToughness--;
+		}
+		return remainingShieldToughness <= 0;
+	}
+
+	public void resetShieldToughness() {
+		remainingShieldToughness = shieldToughness;
 	}
 
 	public void read(ValueInput aiInput) {
@@ -130,6 +161,7 @@ public class PmbShieldAiData {
 		output.putInt("cooldownTicks", cooldownTicks);
 		output.putFloat("blockingAngle", blockingAngle);
 		output.putInt("axeDisableCooldownTicks", axeDisableCooldownTicks);
+		output.putInt("shieldToughness", shieldToughness);
 		output.putFloat("speedReduction", speedReduction);
 	}
 
@@ -143,16 +175,18 @@ public class PmbShieldAiData {
 		cooldownTicks = DEFAULT_COOLDOWN_TICKS;
 		blockingAngle = DEFAULT_BLOCKING_ANGLE;
 		axeDisableCooldownTicks = DEFAULT_AXE_DISABLE_COOLDOWN_TICKS;
+		shieldToughness = DEFAULT_SHIELD_TOUGHNESS;
 		speedReduction = DEFAULT_SPEED_REDUCTION;
 		useTicks = 0;
 		cooldown = 0;
 		disabledCooldown = 0;
+		remainingShieldToughness = DEFAULT_SHIELD_TOUGHNESS;
 	}
 
 	private void readNested(ValueInput shieldInput) {
 		if (!hasAnyShieldField(shieldInput, "enable", "range", "shieldRange", "chance", "shieldChance",
 				"minUseTicks", "shieldMinUseTicks", "maxUseTicks", "shieldMaxUseTicks", "cooldownTicks",
-				"shieldCooldownTicks", "blockingAngle", "axeDisableCooldownTicks", "speedReduction",
+				"shieldCooldownTicks", "blockingAngle", "axeDisableCooldownTicks", "shieldToughness", "speedReduction",
 				"shieldSpeedReduction", "movementSpeedReduction", "speedReductionPercent")) {
 			clear();
 			return;
@@ -171,10 +205,13 @@ public class PmbShieldAiData {
 		blockingAngle = clamp(getFloatOr(shieldInput, DEFAULT_BLOCKING_ANGLE, "blockingAngle"), 1.0F, 180.0F);
 		axeDisableCooldownTicks = clamp(getIntOr(shieldInput, DEFAULT_AXE_DISABLE_COOLDOWN_TICKS,
 				"axeDisableCooldownTicks"), 0, 600);
+		shieldToughness = clamp(getIntOr(shieldInput, DEFAULT_SHIELD_TOUGHNESS, "shieldToughness"), 1,
+				MAX_SHIELD_TOUGHNESS);
 		speedReduction = readSpeedReduction(shieldInput);
 		useTicks = 0;
 		cooldown = 0;
 		disabledCooldown = 0;
+		resetShieldToughness();
 	}
 
 	private void readLegacyFlat(ValueInput aiInput) {
@@ -194,10 +231,12 @@ public class PmbShieldAiData {
 		cooldownTicks = clamp(getIntOr(aiInput, DEFAULT_COOLDOWN_TICKS, "shieldCooldownTicks"), 0, 400);
 		blockingAngle = DEFAULT_BLOCKING_ANGLE;
 		axeDisableCooldownTicks = DEFAULT_AXE_DISABLE_COOLDOWN_TICKS;
+		shieldToughness = DEFAULT_SHIELD_TOUGHNESS;
 		speedReduction = readSpeedReduction(aiInput);
 		useTicks = 0;
 		cooldown = 0;
 		disabledCooldown = 0;
+		resetShieldToughness();
 	}
 
 	private static boolean hasAnyShieldField(ValueInput input, String... keys) {
