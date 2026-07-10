@@ -11,6 +11,25 @@ Year.Month.Day-No.
 
 ## Record
 
+### 26.7.10-1
+Added shield-break vulnerability after true shield breaks.
+
+Added the integer shield parameter disableVulnerTicks with a range of 0–72000 and a default value of 40. When this value is 0, shield-break vulnerability is skipped.
+
+Added the float shield parameter vulnerDamageMultiplier with a range of 1.0–100.0 and a default value of 1.5.
+
+Added the float shield parameter disableKBMultiplier with a range of 0.0–100.0 and a default value of 1.2. When this value is 0.0, the extra shield-break knockback is skipped.
+
+The final hit that truly breaks the shield now applies extra shield-break knockback. The applied base strength is 0.6 multiplied by disableKBMultiplier.
+
+During shield-break vulnerability, the mob cannot attack, keeps clearing its target and navigation, and suppresses AI movement input while preserving existing velocity from knockback or other external forces. It renders with the same shaking style used by zombie-villager curing or piglin zombification. The implementation does not enable NoAI, so normal physics such as gravity continue to apply.
+
+Damage received during shield-break vulnerability is multiplied by vulnerDamageMultiplier.
+
+Adjusted shield-raising animations for zombie villagers and zombified piglins so their blocking arm pose is no longer overwritten by zombie-arm animation. Illager shield rendering now also forces the blocking arm render state to BLOCK and switches crossed-arm poses to NEUTRAL while a shield is being used. The special held-item layers used by vindicators and evokers now render held items while the mob is using a blocking item instead of only rendering during vanilla aggressive or spellcasting states.
+
+Shield toughness now resets immediately when the current shield use is interrupted without a true shield break, such as when the mob loses its target while shielding.
+
 ### 26.7.9-3
 Added the integer shield parameter critToughnessDamage with a range of 1–100 and a default value of 1.
 

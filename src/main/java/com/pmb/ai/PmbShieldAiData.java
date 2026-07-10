@@ -18,9 +18,15 @@ public class PmbShieldAiData {
 	private static final int DEFAULT_AXE_DISABLE_COOLDOWN_TICKS = 100;
 	private static final int DEFAULT_SHIELD_TOUGHNESS = 1;
 	private static final int DEFAULT_CRIT_TOUGHNESS_DAMAGE = 1;
+	private static final int DEFAULT_DISABLE_VULNER_TICKS = 40;
+	private static final float DEFAULT_VULNER_DAMAGE_MULTIPLIER = 1.5F;
+	private static final float DEFAULT_DISABLE_KB_MULTIPLIER = 1.2F;
 	private static final float DEFAULT_SPEED_REDUCTION = 0.5F;
 	private static final int MAX_USE_TICKS = 72000;
 	private static final int MAX_SHIELD_TOUGHNESS = 100;
+	private static final int MAX_DISABLE_VULNER_TICKS = 72000;
+	private static final float MAX_VULNER_DAMAGE_MULTIPLIER = 100.0F;
+	private static final float MAX_DISABLE_KB_MULTIPLIER = 100.0F;
 
 	private boolean configured;
 	private boolean enabled;
@@ -33,11 +39,15 @@ public class PmbShieldAiData {
 	private int axeDisableCooldownTicks = DEFAULT_AXE_DISABLE_COOLDOWN_TICKS;
 	private int shieldToughness = DEFAULT_SHIELD_TOUGHNESS;
 	private int critToughnessDamage = DEFAULT_CRIT_TOUGHNESS_DAMAGE;
+	private int disableVulnerTicks = DEFAULT_DISABLE_VULNER_TICKS;
+	private float vulnerDamageMultiplier = DEFAULT_VULNER_DAMAGE_MULTIPLIER;
+	private float disableKbMultiplier = DEFAULT_DISABLE_KB_MULTIPLIER;
 	private float speedReduction = DEFAULT_SPEED_REDUCTION;
 	private int useTicks;
 	private int cooldown;
 	private int disabledCooldown;
 	private int remainingShieldToughness = DEFAULT_SHIELD_TOUGHNESS;
+	private int vulnerableTicks;
 
 	public boolean isConfigured() {
 		return configured;
@@ -85,6 +95,18 @@ public class PmbShieldAiData {
 
 	public int critToughnessDamage() {
 		return critToughnessDamage;
+	}
+
+	public int disableVulnerTicks() {
+		return disableVulnerTicks;
+	}
+
+	public float vulnerDamageMultiplier() {
+		return vulnerDamageMultiplier;
+	}
+
+	public float disableKbMultiplier() {
+		return disableKbMultiplier;
 	}
 
 	public float speedReduction() {
@@ -137,6 +159,24 @@ public class PmbShieldAiData {
 		}
 	}
 
+	public int vulnerableTicks() {
+		return vulnerableTicks;
+	}
+
+	public boolean isVulnerable() {
+		return vulnerableTicks > 0;
+	}
+
+	public void startShieldVulnerability() {
+		vulnerableTicks = disableVulnerTicks;
+	}
+
+	public void tickShieldVulnerability() {
+		if (vulnerableTicks > 0) {
+			vulnerableTicks--;
+		}
+	}
+
 	public boolean consumeShieldToughness(int amount) {
 		if (remainingShieldToughness > 0) {
 			remainingShieldToughness = Math.max(0, remainingShieldToughness - Math.max(1, amount));
@@ -169,6 +209,9 @@ public class PmbShieldAiData {
 		output.putInt("axeDisableCooldownTicks", axeDisableCooldownTicks);
 		output.putInt("shieldToughness", shieldToughness);
 		output.putInt("critToughnessDamage", critToughnessDamage);
+		output.putInt("disableVulnerTicks", disableVulnerTicks);
+		output.putFloat("vulnerDamageMultiplier", vulnerDamageMultiplier);
+		output.putFloat("disableKBMultiplier", disableKbMultiplier);
 		output.putFloat("speedReduction", speedReduction);
 	}
 
@@ -184,18 +227,23 @@ public class PmbShieldAiData {
 		axeDisableCooldownTicks = DEFAULT_AXE_DISABLE_COOLDOWN_TICKS;
 		shieldToughness = DEFAULT_SHIELD_TOUGHNESS;
 		critToughnessDamage = DEFAULT_CRIT_TOUGHNESS_DAMAGE;
+		disableVulnerTicks = DEFAULT_DISABLE_VULNER_TICKS;
+		vulnerDamageMultiplier = DEFAULT_VULNER_DAMAGE_MULTIPLIER;
+		disableKbMultiplier = DEFAULT_DISABLE_KB_MULTIPLIER;
 		speedReduction = DEFAULT_SPEED_REDUCTION;
 		useTicks = 0;
 		cooldown = 0;
 		disabledCooldown = 0;
 		remainingShieldToughness = DEFAULT_SHIELD_TOUGHNESS;
+		vulnerableTicks = 0;
 	}
 
 	private void readNested(ValueInput shieldInput) {
 		if (!hasAnyShieldField(shieldInput, "enable", "range", "shieldRange", "chance", "shieldChance",
 				"minUseTicks", "shieldMinUseTicks", "maxUseTicks", "shieldMaxUseTicks", "cooldownTicks",
 				"shieldCooldownTicks", "blockingAngle", "axeDisableCooldownTicks", "shieldToughness",
-				"critToughnessDamage", "speedReduction", "shieldSpeedReduction", "movementSpeedReduction",
+				"critToughnessDamage", "disableVulnerTicks", "vulnerDamageMultiplier", "disableKBMultiplier",
+				"disableKbMultiplier", "speedReduction", "shieldSpeedReduction", "movementSpeedReduction",
 				"speedReductionPercent")) {
 			clear();
 			return;
@@ -218,10 +266,17 @@ public class PmbShieldAiData {
 				MAX_SHIELD_TOUGHNESS);
 		critToughnessDamage = clamp(getIntOr(shieldInput, DEFAULT_CRIT_TOUGHNESS_DAMAGE, "critToughnessDamage"), 1,
 				MAX_SHIELD_TOUGHNESS);
+		disableVulnerTicks = clamp(getIntOr(shieldInput, DEFAULT_DISABLE_VULNER_TICKS, "disableVulnerTicks"), 0,
+				MAX_DISABLE_VULNER_TICKS);
+		vulnerDamageMultiplier = clamp(getFloatOr(shieldInput, DEFAULT_VULNER_DAMAGE_MULTIPLIER,
+				"vulnerDamageMultiplier"), 1.0F, MAX_VULNER_DAMAGE_MULTIPLIER);
+		disableKbMultiplier = clamp(getFloatOr(shieldInput, DEFAULT_DISABLE_KB_MULTIPLIER,
+				"disableKBMultiplier", "disableKbMultiplier"), 0.0F, MAX_DISABLE_KB_MULTIPLIER);
 		speedReduction = readSpeedReduction(shieldInput);
 		useTicks = 0;
 		cooldown = 0;
 		disabledCooldown = 0;
+		vulnerableTicks = 0;
 		resetShieldToughness();
 	}
 
@@ -244,10 +299,14 @@ public class PmbShieldAiData {
 		axeDisableCooldownTicks = DEFAULT_AXE_DISABLE_COOLDOWN_TICKS;
 		shieldToughness = DEFAULT_SHIELD_TOUGHNESS;
 		critToughnessDamage = DEFAULT_CRIT_TOUGHNESS_DAMAGE;
+		disableVulnerTicks = DEFAULT_DISABLE_VULNER_TICKS;
+		vulnerDamageMultiplier = DEFAULT_VULNER_DAMAGE_MULTIPLIER;
+		disableKbMultiplier = DEFAULT_DISABLE_KB_MULTIPLIER;
 		speedReduction = readSpeedReduction(aiInput);
 		useTicks = 0;
 		cooldown = 0;
 		disabledCooldown = 0;
+		vulnerableTicks = 0;
 		resetShieldToughness();
 	}
 

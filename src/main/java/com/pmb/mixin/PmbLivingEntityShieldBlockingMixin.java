@@ -3,6 +3,7 @@ package com.pmb.mixin;
 import com.pmb.ai.PmbAiHolder;
 import com.pmb.ai.PmbCriticalAttackHolder;
 import com.pmb.ai.PmbShieldAiData;
+import com.pmb.ai.PmbShieldVulnerableHolder;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.particles.BlockParticleOption;
 import net.minecraft.core.particles.ParticleTypes;
@@ -34,6 +35,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 @Mixin(LivingEntity.class)
 public abstract class PmbLivingEntityShieldBlockingMixin {
 	private static final String GUARD_VILLAGERS_NAMESPACE = "guardvillagers";
+	private static final double SHIELD_BREAK_KNOCKBACK_STRENGTH = 0.6D;
 
 	@Shadow
 	public abstract ItemStack getItemBlockingWith();
@@ -132,9 +134,14 @@ public abstract class PmbLivingEntityShieldBlockingMixin {
 		}
 
 		playShieldBreakEffect(level);
+		applyShieldBreakKnockback(source, shieldAi);
 		blocksAttacks.disable(level, pmb$self(), disableSeconds, blockingItem);
 		shieldAi.setUseTicks(0);
 		shieldAi.setDisabledCooldown(shieldAi.axeDisableCooldownTicks());
+		if (shieldAi.disableVulnerTicks() > 0) {
+			shieldAi.startShieldVulnerability();
+			((PmbShieldVulnerableHolder) this).pmb$setSyncedShieldVulnerableTicks(shieldAi.vulnerableTicks());
+		}
 		return true;
 	}
 
@@ -157,6 +164,31 @@ public abstract class PmbLivingEntityShieldBlockingMixin {
 		level.playSound(null, position.x, position.y, position.z, SoundEvents.ZOMBIE_BREAK_WOODEN_DOOR,
 				SoundSource.HOSTILE, 1.0F, 0.9F);
 		spawnOakDoorParticles(level, position, 24, 0.4D, 0.5D, 0.4D, 0.08D);
+	}
+
+	private void applyShieldBreakKnockback(DamageSource source, PmbShieldAiData shieldAi) {
+		float multiplier = shieldAi.disableKbMultiplier();
+		if (multiplier <= 0.0F) {
+			return;
+		}
+
+		LivingEntity self = pmb$self();
+		Vec3 direction = pmb$shieldBreakKnockbackDirection(source);
+		if (direction.lengthSqr() < 1.0E-7D) {
+			return;
+		}
+
+		self.knockback(SHIELD_BREAK_KNOCKBACK_STRENGTH * multiplier, direction.x, direction.z);
+	}
+
+	private Vec3 pmb$shieldBreakKnockbackDirection(DamageSource source) {
+		LivingEntity self = pmb$self();
+		Vec3 sourcePosition = pmb$stableDamageSourcePosition(source);
+		if (sourcePosition != null) {
+			return new Vec3(sourcePosition.x - self.getX(), 0.0D, sourcePosition.z - self.getZ());
+		}
+
+		return self.calculateViewVector(0.0F, self.getYHeadRot()).multiply(1.0D, 0.0D, 1.0D);
 	}
 
 	private Vec3 pmb$shieldFeedbackPosition() {

@@ -3,9 +3,12 @@ package com.pmb.mixin;
 import com.pmb.PortableMobBehaviour;
 import com.pmb.ai.PmbAiHolder;
 import com.pmb.ai.PmbShieldAiData;
+import com.pmb.ai.PmbShieldVulnerableHolder;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
@@ -18,6 +21,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(Mob.class)
 public abstract class PmbMobShieldMixin extends LivingEntity {
@@ -26,6 +30,24 @@ public abstract class PmbMobShieldMixin extends LivingEntity {
 
 	protected PmbMobShieldMixin(EntityType<? extends LivingEntity> entityType, Level level) {
 		super(entityType, level);
+	}
+
+	@Inject(method = "doHurtTarget", at = @At("HEAD"), cancellable = true)
+	private void pmb$preventAttackingWhileShieldVulnerable(ServerLevel level, Entity target,
+			CallbackInfoReturnable<Boolean> info) {
+		PmbShieldAiData shieldAi = ((PmbAiHolder) this).pmb$getAiData().shield();
+		if (shieldAi.isVulnerable()) {
+			pmb$stopForShieldVulnerability((Mob) (Object) this, shieldAi);
+			info.setReturnValue(false);
+		}
+	}
+
+	@Inject(method = "serverAiStep", at = @At("TAIL"))
+	private void pmb$softStopAiWhileShieldVulnerable(CallbackInfo info) {
+		PmbShieldAiData shieldAi = ((PmbAiHolder) this).pmb$getAiData().shield();
+		if (shieldAi.isVulnerable()) {
+			pmb$stopForShieldVulnerability((Mob) (Object) this, shieldAi);
+		}
 	}
 
 	@Inject(method = "tick", at = @At("TAIL"))
@@ -43,9 +65,17 @@ public abstract class PmbMobShieldMixin extends LivingEntity {
 		PmbShieldAiData shieldAi = ((PmbAiHolder) this).pmb$getAiData().shield();
 		shieldAi.tickCooldowns();
 		if (!shieldAi.isConfigured()) {
+			((PmbShieldVulnerableHolder) this).pmb$setSyncedShieldVulnerableTicks(0);
 			removePmbShieldSpeedModifier();
 			return;
 		}
+
+		if (shieldAi.isVulnerable()) {
+			pmb$tickShieldVulnerability(mob, shieldAi);
+			return;
+		}
+
+		((PmbShieldVulnerableHolder) this).pmb$setSyncedShieldVulnerableTicks(0);
 
 		if (!shieldAi.canUse() || mob.isNoAi() || getOffhandItem().getItem() != Items.SHIELD) {
 			stopPmbShield(shieldAi);
@@ -101,6 +131,7 @@ public abstract class PmbMobShieldMixin extends LivingEntity {
 
 		if (!isUsingItem() || getUsedItemHand() != InteractionHand.OFF_HAND) {
 			shieldAi.setUseTicks(0);
+			shieldAi.resetShieldToughness();
 			return;
 		}
 
@@ -119,12 +150,18 @@ public abstract class PmbMobShieldMixin extends LivingEntity {
 	}
 
 	private void stopPmbShield(PmbShieldAiData shieldAi) {
+		boolean resetToughness = shieldAi.disabledCooldown() <= 0 && (shieldAi.useTicks() > 0
+				|| (isUsingItem() && getUsedItemHand() == InteractionHand.OFF_HAND
+						&& getOffhandItem().getItem() == Items.SHIELD));
 		if (isUsingItem() && getUsedItemHand() == InteractionHand.OFF_HAND
 				&& (shieldAi.useTicks() > 0 || getOffhandItem().getItem() == Items.SHIELD)) {
 			stopUsingItem();
 		}
 
 		shieldAi.setUseTicks(0);
+		if (resetToughness) {
+			shieldAi.resetShieldToughness();
+		}
 		removePmbShieldSpeedModifier();
 	}
 
@@ -149,5 +186,18 @@ public abstract class PmbMobShieldMixin extends LivingEntity {
 		if (speed != null) {
 			speed.removeModifier(SHIELD_SPEED_REDUCTION_ID);
 		}
+	}
+
+	private void pmb$tickShieldVulnerability(Mob mob, PmbShieldAiData shieldAi) {
+		pmb$stopForShieldVulnerability(mob, shieldAi);
+		shieldAi.tickShieldVulnerability();
+		((PmbShieldVulnerableHolder) this).pmb$setSyncedShieldVulnerableTicks(shieldAi.vulnerableTicks());
+	}
+
+	private void pmb$stopForShieldVulnerability(Mob mob, PmbShieldAiData shieldAi) {
+		stopPmbShield(shieldAi);
+		mob.getNavigation().stop();
+		mob.setTarget(null);
+		mob.setAggressive(false);
 	}
 }

@@ -5,14 +5,23 @@
 	"mixins": [
 		"PmbLivingEntityAiMixin",
 		"PmbLivingEntityShieldBlockingMixin",
+		"PmbLivingEntityShieldVulnerabilityMixin",
+		"PmbMoveControlShieldVulnerabilityMixin",
 		"PmbMobShieldMixin",
 		"PmbPlayerCriticalAttackMixin"
 	],
 	"client": [
 		"client.PmbAbstractZombieModelShieldPoseMixin",
+		"client.PmbEvokerItemInHandLayerShieldMixin",
 		"client.PmbHumanoidMobRendererShieldPoseMixin",
 		"client.PmbIllagerModelShieldPoseMixin",
-		"client.PmbSkeletonModelShieldPoseMixin"
+		"client.PmbIllagerRendererShieldPoseMixin",
+		"client.PmbLivingEntityRendererShieldVulnerabilityMixin",
+		"client.PmbLivingEntityRenderStateMixin",
+		"client.PmbSkeletonModelShieldPoseMixin",
+		"client.PmbVindicatorItemInHandLayerShieldMixin",
+		"client.PmbZombieVillagerModelShieldPoseMixin",
+		"client.PmbZombifiedPiglinModelShieldPoseMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

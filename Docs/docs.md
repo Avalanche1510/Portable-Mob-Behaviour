@@ -24,6 +24,9 @@ Available parameters and the syntax used to define the data structure are given 
                     axeDisableCooldownTicks: <int>,
                     shieldToughness: <int>,
                     critToughnessDamage: <int>,
+                    disableVulnerTicks: <int>,
+                    vulnerDamageMultiplier: <float>,
+                    disableKBMultiplier: <float>,
                     speedReduction: <float>
                 }
         }
@@ -85,11 +88,13 @@ Attacks capable of disabling shields consume one point of shield toughness.
 
 When the configured number of such attacks is reached during the current shield-use round, shield use stops and the forced cooldown begins.
 
-The counter resets when the normal cooldown ends and before a new round after a forced cooldown.
+The counter resets when the normal cooldown ends, before a new round after a forced cooldown, and immediately when the current shield use is interrupted without a true shield break.
 
 Shield recoil, durability loss, and shield toughness consumption occur at most once per normal damage interval. Additional attacks ignored by the entity's damage cooldown do not accumulate these effects.
 
-A fully blocked attack does not produce vanilla critical-hit particles, but the mod captures the player's vanilla critical-hit eligibility before attack charge is reset. A critical shield-disabling attack consumes critToughnessDamage points. If the shield remains intact, a critical shield-disabling attack plays the zombie wooden-door attack sound and emits 10 oak-door debris particles, a normal shield-disabling attack emits 6 particles, and any other blocked attack emits 3 particles. A true shield break instead plays the zombie wooden-door break sound and emits 24 particles.
+A fully blocked attack does not produce vanilla critical-hit particles, but the mod captures the player's vanilla critical-hit eligibility before attack charge is reset. A critical shield-disabling attack consumes critToughnessDamage points. If the shield remains intact, a critical shield-disabling attack plays the zombie wooden-door attack sound and emits 10 oak-door debris particles, a normal shield-disabling attack emits 6 particles, and any other blocked attack emits 3 particles. A true shield break instead plays the zombie wooden-door break sound, emits 24 particles, and applies extra shield-break knockback controlled by disableKBMultiplier.
+
+After a true shield break, the mob enters shield-break vulnerability for disableVulnerTicks game ticks. During this window, the mob cannot attack, keeps clearing its target and navigation, and suppresses AI movement input, while existing velocity from knockback or other external forces is preserved. It renders with the same shaking style used by zombie-villager curing or piglin zombification. This does not enable NoAI, so normal physics such as gravity continue to apply. Damage received during this window is multiplied by vulnerDamageMultiplier. If disableVulnerTicks is 0, this vulnerability window is skipped.
 
 Entities from the Guard Villagers namespace are excluded from this behaviour to avoid conflicting with that mod.
 
@@ -109,6 +114,9 @@ shield:
         axeDisableCooldownTicks: <int>,
         shieldToughness: <int>,
         critToughnessDamage: <int>,
+        disableVulnerTicks: <int>,
+        vulnerDamageMultiplier: <float>,
+        disableKBMultiplier: <float>,
         speedReduction: <float>
     }
 ```
@@ -172,7 +180,7 @@ Meaning: Number of shield-disabling attacks required to break the current shield
 Type: integer
 Range: [1, 100]
 Default: 1
-Refresh: Resets after the normal cooldown ends and before a new round after a forced cooldown
+Refresh: Resets after the normal cooldown ends, before a new round after a forced cooldown, and when the current shield use is interrupted without a true shield break
 
 critToughnessDamage
 Meaning: Shield toughness consumed by a shield-disabling attack that meets the vanilla player critical-hit conditions
@@ -180,6 +188,27 @@ Type: integer
 Range: [1, 100]
 Default: 1
 Note: Normal shield-disabling attacks always consume 1 point; attacks that cannot disable shields consume none
+
+disableVulnerTicks
+Meaning: Duration of the shield-break vulnerability window after a true shield break, in game ticks
+Type: integer
+Range: [0, 72000]
+Default: 40
+Note: 0 skips the vulnerability window
+
+vulnerDamageMultiplier
+Meaning: Damage multiplier applied while the mob is in shield-break vulnerability
+Type: float
+Range: [1.0f, 100.0f]
+Default: 1.5f
+Note: 1.5 means the mob receives double damage during shield-break vulnerability
+
+disableKBMultiplier
+Meaning: Multiplier for the extra knockback applied by the final hit that truly breaks the shield
+Type: float
+Range: [0.0f, 100.0f]
+Default: 1.2f
+Note: 0.0 disables the extra shield-break knockback; the applied base strength is 0.6 multiplied by this value
 
 speedReduction
 Meaning: Movement speed reduction ratio while the shield is raised
@@ -202,9 +231,9 @@ Summon a zombie with an iron sword, a shield, and an iron helmet. Shield usage i
 summon zombie ~ ~ ~ {PmbAi:{shield:{enable:1b}}, equipment:{mainhand:{id:iron_sword}, offhand:{id:shield}, head:{id:iron_helmet}}}
 
 Summon a heavily armoured zombie with a diamond sword and shield.
-It can always start to raise its shield within 12 blocks, uses it for 4–8 seconds, has a 3-second normal cooldown, can block attacks from any direction, has 3 shield toughness, takes 2 toughness damage from a critical shield-disabling attack, has a 2.5-second forced cooldown after its shield is disabled, and loses 90% of its movement speed while shielding.
+It can always start to raise its shield within 12 blocks, uses it for 4–8 seconds, has a 3-second normal cooldown, can block attacks from any direction, has 3 shield toughness, takes 2 toughness damage from a critical shield-disabling attack, enters 2 seconds of shield-break vulnerability with double incoming damage after a true shield break, applies 1.5x extra shield-break knockback, has a 2.5-second forced cooldown after its shield is disabled, and loses 90% of its movement speed while shielding.
 (This command is long; use a command block.)
-summon zombie ~ ~ ~ {PmbAi:{shield:{enable:1b, range:12.0f, shieldChance:1.0f, minUseTicks:80, maxUseTicks:160, cooldownTicks:60, blockingAngle:180.0f, axeDisableCooldownTicks:50, shieldToughness:3, critToughnessDamage:2, speedReduction:0.9f}}, equipment:{mainhand:{id:diamond_sword}, offhand:{id:shield}, head:{id:diamond_helmet}, chest:{id:diamond_chestplate}, legs:{id:diamond_leggings}, feet:{id:diamond_boots}}}
+summon zombie ~ ~ ~ {PmbAi:{shield:{enable:1b, range:12.0f, shieldChance:1.0f, minUseTicks:80, maxUseTicks:160, cooldownTicks:60, blockingAngle:180.0f, axeDisableCooldownTicks:50, shieldToughness:3, critToughnessDamage:2, disableVulnerTicks:40, vulnerDamageMultiplier:2.0f, disableKBMultiplier:1.5f, speedReduction:0.9f}}, equipment:{mainhand:{id:diamond_sword}, offhand:{id:shield}, head:{id:diamond_helmet}, chest:{id:diamond_chestplate}, legs:{id:diamond_leggings}, feet:{id:diamond_boots}}}
 
 Enable shield usage with default parameters on the nearest zombie that already has a shield in its off hand.
 data merge entity @e[type=zombie,sort=nearest,limit=1] {PmbAi:{shield:{enable:1b}}}

@@ -62,7 +62,7 @@ public class PmbIllagerModelShieldPoseMixin {
 
 	@Unique
 	private HumanoidArm pmb$blockingArm(IllagerRenderState state) {
-		if (state.ticksUsingItem <= 0.0F) {
+		if (!state.isUsingItem && state.ticksUsingItem <= 0.0F) {
 			return null;
 		}
 
