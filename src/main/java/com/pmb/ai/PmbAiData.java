@@ -9,13 +9,18 @@ public class PmbAiData {
 	public static final String TAG = "PmbAi";
 
 	private final PmbShieldAiData shield = new PmbShieldAiData();
+	private final PmbWindChargeAiData windCharge = new PmbWindChargeAiData();
 
 	public PmbShieldAiData shield() {
 		return shield;
 	}
 
+	public PmbWindChargeAiData windCharge() {
+		return windCharge;
+	}
+
 	public boolean isConfigured() {
-		return shield.isConfigured();
+		return shield.isConfigured() || windCharge.isConfigured();
 	}
 
 	public void read(ValueInput input) {
@@ -26,6 +31,7 @@ public class PmbAiData {
 		}
 
 		shield.read(aiInput.get());
+		windCharge.read(aiInput.get());
 	}
 
 	public void write(ValueOutput output) {
@@ -37,9 +43,13 @@ public class PmbAiData {
 		if (shield.isConfigured()) {
 			shield.write(ai.child(PmbShieldAiData.TAG));
 		}
+		if (windCharge.isConfigured()) {
+			windCharge.write(ai.child(PmbWindChargeAiData.TAG));
+		}
 	}
 
 	private void clear() {
 		shield.clear();
+		windCharge.clear();
 	}
 }

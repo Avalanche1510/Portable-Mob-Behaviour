@@ -28,6 +28,19 @@ Available parameters and the syntax used to define the data structure are given 
                     vulnerDamageMultiplier: <float>,
                     disableKBMultiplier: <float>,
                     speedReduction: <float>
+                },
+            wind_charge:
+                {
+                    enable: <bool>,
+                    doConsume: <bool>,
+                    inAirTrackStrength: <float>,
+                    throwRange: <float>,
+                    throwChance: <float>,
+                    throwCooldownTicks: <int>,
+                    throwAccuracy: <float>,
+                    bounceRange: <float>,
+                    bounceChance: <float>,
+                    bounceCooldownTicks: <int>
                 }
         }
 }
@@ -57,7 +70,143 @@ PmbAi:
     }
 ```
 
-Only shield is currently implemented. mace and bow are examples of possible future skill tags and are not currently available.
+shield and wind_charge are currently implemented. mace and bow are examples of possible future skill tags and are not currently available.
+
+</details>
+
+### wind charge
+
+The wind-charge AI gives mobs holding a vanilla wind charge two modes: throwing and self-bouncing. It also provides the shared foundation for future wind-charge mace and wind-charge spear AI behaviours. Dedicated wind-charge mace or spear attack decisions are not implemented yet. A mace-wielding mob becoming more likely to land a smash attack after bouncing is an emergent interaction of target retention and airborne movement.
+
+Conditions for wind-charge use:
+
+1. The entity is a mob and holds a vanilla wind charge in either hand.
+2. enable is true.
+3. The mob has a living hostile target.
+4. The mob does not have NoAI enabled and is not in shield-break vulnerability.
+5. The distance, cooldown, and chance checks for the corresponding mode succeed.
+
+Bounce mode takes priority when both modes can be checked. When the mob is on the ground and its target is within bounceRange, it checks bounceChance every bounceCooldownTicks game ticks. On success, it immediately looks down, swings the hand holding the wind charge, jumps, and fires a wind charge beneath its feet so that the explosion produces as much upward launch as possible.
+
+When a visible target is within throwRange, throw mode checks throwChance every throwCooldownTicks game ticks. On success, the mob swings the hand holding the wind charge and throws at a lead point calculated from the target's position and velocity. throwAccuracy controls vanilla projectile spread; 1.0 means no random spread.
+
+doConsume controls consumption for both throw and bounce mode. By default, the held wind charge only acts as the skill's required equipment and is not consumed. When enabled, every successful throw or bounce consumes one wind charge from the hand that actually performed the action.
+
+The downward bounce uses the vanilla living-entity impulse fall-protection context. Returning to the height where the wind-charge impulse occurred does not deal fall damage from that launch. If the mob lands below the launch point, only the additional drop below that height can still deal normal fall damage.
+
+After being launched by its own wind charge, the mob remembers that target for up to 60 game ticks. If vanilla airborne pathfinding temporarily clears the target, the mod restores it and applies a small, limited targetward acceleration controlled by inAirTrackStrength. This preserves gravity, wind-charge launch velocity, and existing horizontal inertia while gradually advancing toward the target instead of replacing movement with conspicuous tracking velocity. A value of 0.0 adds no horizontal tracking acceleration.
+
+After the initial downward bounce pose ends, the mob continuously aligns its view, head, and body with the target while airborne. If it starts a melee attack before that pose ends, the downward pose ends immediately and the mob faces the entity it is actually attacking, preventing hits while visibly facing away. Facing correction is independent of inAirTrackStrength. The tracking state clears when the mob lands, the target becomes invalid, or the time expires.
+
+<details>
+<summary>parameters structure</summary>
+
+```text
+wind_charge:
+    {
+        enable: <bool>,
+        doConsume: <bool>,
+        inAirTrackStrength: <float>,
+        throwRange: <float>,
+        throwChance: <float>,
+        throwCooldownTicks: <int>,
+        throwAccuracy: <float>,
+        bounceRange: <float>,
+        bounceChance: <float>,
+        bounceCooldownTicks: <int>
+    }
+```
+
+</details>
+
+<details>
+<summary>details of parameters</summary>
+
+```text
+enable
+Meaning: Whether this AI skill is enabled
+Type: bool
+Range: 0b, 1b
+Default: 0b
+
+doConsume
+Meaning: Whether a successful throw or downward self-bounce consumes one wind charge
+Type: bool
+Range: 0b, 1b
+Default: 0b
+Note: Controls both modes and consumes from the hand actually holding the wind charge when the action triggers
+
+inAirTrackStrength
+Meaning: Maximum horizontal acceleration added toward the target each game tick after a downward self-bounce
+Type: float
+Range: [0.0f, 1.0f]
+Default: 0.012f
+Note: Added only while targetward horizontal velocity is below an internal threshold; 0.0 disables horizontal tracking but does not disable facing the target while airborne
+
+throwRange
+Meaning: Maximum target distance for throw mode; line of sight is also required
+Type: float
+Range: [0.0f, 64.0f]
+Default: 16.0f
+
+throwChance
+Meaning: Chance for each throw check to succeed
+Type: float
+Range: [0.0f, 1.0f]
+Default: 0.35f
+
+throwCooldownTicks
+Meaning: Game ticks between throw chance checks
+Type: integer
+Range: [0, 72000]
+Default: 40
+Note: 0 allows a check every game tick
+
+throwAccuracy
+Meaning: Accuracy of thrown wind charges; higher values produce less random spread
+Type: float
+Range: [0.0f, 1.0f]
+Default: 0.9f
+Note: 1.0 means no random spread
+
+bounceRange
+Meaning: Maximum target distance for the downward self-bounce mode
+Type: float
+Range: [0.0f, 64.0f]
+Default: 4.0f
+
+bounceChance
+Meaning: Chance for each downward self-bounce check to succeed
+Type: float
+Range: [0.0f, 1.0f]
+Default: 0.35f
+
+bounceCooldownTicks
+Meaning: Game ticks between downward self-bounce chance checks
+Type: integer
+Range: [0, 72000]
+Default: 40
+Note: 0 allows a check every game tick
+```
+
+Values outside these ranges are automatically clamped when the entity data is read.
+One second is normally equal to 20 game ticks.
+
+</details>
+
+<details>
+<summary>command examples</summary>
+
+```text
+Summon a zombie holding a wind charge in its off hand and using all default wind-charge parameters.
+summon zombie ~ ~ ~ {PmbAi:{wind_charge:{enable:1b}}, equipment:{mainhand:{id:iron_sword}, offhand:{id:wind_charge}}}
+
+Summon a zombie that throws perfectly accurate wind charges and always uses a wind-charge bounce to pursue nearby targets. Each successful use consumes one wind charge.
+summon zombie ~ ~ ~ {PmbAi:{wind_charge:{enable:1b, doConsume:1b, inAirTrackStrength:0.012f, throwRange:24.0f, throwChance:1.0f, throwCooldownTicks:40, throwAccuracy:1.0f, bounceRange:6.0f, bounceChance:1.0f, bounceCooldownTicks:60}}, equipment:{mainhand:{id:wind_charge,count:64}}}
+
+Disable wind-charge AI on the nearest zombie without removing its other configured parameters.
+data merge entity @e[type=zombie,sort=nearest,limit=1] {PmbAi:{wind_charge:{enable:0b}}}
+```
 
 </details>
 

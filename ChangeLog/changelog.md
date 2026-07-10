@@ -11,6 +11,33 @@ Year.Month.Day-No.
 
 ## Record
 
+### 26.7.10-2
+Added the wind_charge AI skill as a shared foundation that can also be used by future wind-charge mace and wind-charge spear AI behaviours.
+
+Added enable, throwRange, throwChance, throwCooldownTicks, throwAccuracy, bounceRange, bounceChance, and bounceCooldownTicks. Wind-charge AI only runs while the mob holds a vanilla wind charge in either hand and does not consume it by default.
+
+Added the boolean doConsume parameter with a default of 0b. It controls both throw and bounce mode. When enabled, each successful trigger consumes one wind charge from the hand that performed the action.
+
+Added the float inAirTrackStrength parameter with a range of 0.0–1.0 and a default of 0.012. It controls the maximum horizontal acceleration added toward the target per game tick after a downward self-bounce. A value of 0.0 disables horizontal tracking acceleration but does not disable airborne facing correction.
+
+Added wind-charge throw mode. When a visible target is within throwRange, the mob checks throwChance every throwCooldownTicks game ticks. On success, it swings the hand holding the wind charge and throws with random spread controlled by throwAccuracy toward a lead point calculated from the target's position and velocity.
+
+Added wind-charge bounce mode. When the mob is on the ground and its target is within bounceRange, it checks bounceChance every bounceCooldownTicks game ticks. On success, it immediately looks down, swings, jumps, and fires a wind charge beneath its feet to maximize upward launch. Bounce mode has priority when both modes can be checked.
+
+Added post-bounce airborne pursuit. The mob remembers its bounce target for up to 60 game ticks, restores that target if vanilla airborne pathfinding clears it, and applies capped horizontal steering so it continues advancing while preserving gravity and wind-charge launch velocity. The state clears after landing, target invalidation, or timeout.
+
+Reduced post-bounce airborne steering strength. It now applies only a small acceleration while targetward velocity is below a threshold and does not reduce or replace existing horizontal inertia, making airborne turning much less conspicuous.
+
+Mobs in post-bounce flight now continuously align their view, head, and body with the target after the initial downward pose. Starting a melee attack during that pose ends it immediately and turns the mob toward the entity being attacked, preventing hits while visibly facing away.
+
+Fixed the client continuing to render a wind charge after doConsume depleted the final item in that hand even though the server-side hand was empty. Consumption now resets the mob's equipment slot with the remaining stack or an explicit empty stack so the equipment change is synchronized.
+
+Dedicated wind-charge mace and wind-charge spear attack decisions are not implemented yet. The high success rate of mace attacks after bouncing is an emergent compatibility effect of target retention and airborne movement.
+
+Downward self-bounce now gives the mob vanilla LivingEntity impulse fall protection. Returning to the impulse height does not deal fall damage from that launch; when landing lower, the additional drop below the launch point is still included in normal fall-damage calculation.
+
+Wind-charge AI does not trigger while the mob has NoAI enabled or is in shield-break vulnerability. All parameters are included in NBT reading, saving, configuration detection, defaults, clamping, and the complete English and Chinese structures, parameter references, and command examples.
+
 ### 26.7.10-1
 Added shield-break vulnerability after true shield breaks.
 
