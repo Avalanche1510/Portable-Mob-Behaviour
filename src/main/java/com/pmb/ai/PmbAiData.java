@@ -10,6 +10,7 @@ public class PmbAiData {
 
 	private final PmbShieldAiData shield = new PmbShieldAiData();
 	private final PmbWindChargeAiData windCharge = new PmbWindChargeAiData();
+	private final PmbMaceAiData mace = new PmbMaceAiData();
 
 	public PmbShieldAiData shield() {
 		return shield;
@@ -19,8 +20,12 @@ public class PmbAiData {
 		return windCharge;
 	}
 
+	public PmbMaceAiData mace() {
+		return mace;
+	}
+
 	public boolean isConfigured() {
-		return shield.isConfigured() || windCharge.isConfigured();
+		return shield.isConfigured() || windCharge.isConfigured() || mace.isConfigured();
 	}
 
 	public void read(ValueInput input) {
@@ -32,6 +37,7 @@ public class PmbAiData {
 
 		shield.read(aiInput.get());
 		windCharge.read(aiInput.get());
+		mace.read(aiInput.get());
 	}
 
 	public void write(ValueOutput output) {
@@ -46,10 +52,14 @@ public class PmbAiData {
 		if (windCharge.isConfigured()) {
 			windCharge.write(ai.child(PmbWindChargeAiData.TAG));
 		}
+		if (mace.isConfigured()) {
+			mace.write(ai.child(PmbMaceAiData.TAG));
+		}
 	}
 
 	private void clear() {
 		shield.clear();
 		windCharge.clear();
+		mace.clear();
 	}
 }

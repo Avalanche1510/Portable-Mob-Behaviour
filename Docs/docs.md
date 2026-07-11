@@ -41,6 +41,14 @@ Available parameters and the syntax used to define the data structure are given 
                     bounceRange: <float>,
                     bounceChance: <float>,
                     bounceCooldownTicks: <int>
+                },
+            mace:
+                {
+                    enable: <bool>,
+                    smashRange: <float>,
+                    hitChance: <float>,
+                    damageReduction: <float>,
+                    smashCooldownTicks: <int>
                 }
         }
 }
@@ -70,13 +78,13 @@ PmbAi:
     }
 ```
 
-shield and wind_charge are currently implemented. mace and bow are examples of possible future skill tags and are not currently available.
+shield, wind_charge, and mace are currently implemented. bow is an example of a possible future skill tag and is not currently available.
 
 </details>
 
 ### wind charge
 
-The wind-charge AI gives mobs holding a vanilla wind charge two modes: throwing and self-bouncing. It also provides the shared foundation for future wind-charge mace and wind-charge spear AI behaviours. Dedicated wind-charge mace or spear attack decisions are not implemented yet. A mace-wielding mob becoming more likely to land a smash attack after bouncing is an emergent interaction of target retention and airborne movement.
+The wind-charge AI gives mobs holding a vanilla wind charge two modes: throwing and self-bouncing. It also provides a shared foundation for wind-charge mace and future wind-charge spear behaviours. The mace skill now supplies a dedicated falling-smash check and can work with post-bounce target retention and airborne movement. Dedicated wind-charge spear attack decisions are not implemented yet.
 
 Conditions for wind-charge use:
 
@@ -206,6 +214,102 @@ summon zombie ~ ~ ~ {PmbAi:{wind_charge:{enable:1b, doConsume:1b, inAirTrackStre
 
 Disable wind-charge AI on the nearest zombie without removing its other configured parameters.
 data merge entity @e[type=zombie,sort=nearest,limit=1] {PmbAi:{wind_charge:{enable:0b}}}
+```
+
+</details>
+
+### mace
+
+Mace AI lets a mob holding a vanilla mace in its main hand actively perform one vanilla mace smash while falling, controlled by chance and cooldown.
+
+Conditions for a smash check:
+
+1. The entity is a mob and holds a vanilla mace in its main hand.
+2. enable is true.
+3. The mob is airborne, moving downward, and meets the vanilla minimum fall distance for a mace smash.
+4. The mob has a living, attackable, visible hostile target within smashRange.
+5. The mob is not in the smash-check cooldown defined by smashCooldownTicks.
+6. The mob does not have NoAI enabled and is not in shield-break vulnerability.
+
+Once these conditions are met, the mob immediately performs one hitChance check. It enters the smashCooldownTicks cooldown whether that check succeeds or fails. On success, the mob faces the target, swings its main hand, and attacks through the vanilla Mob and mace damage paths. On failure, no attack is performed.
+
+While the skill is enabled and the mob is in a valid falling-mace state, attacks attempted directly by an ordinary melee goal without this skill's check are prevented. This stops vanilla AI from bypassing hitChance, smashCooldownTicks, or damageReduction. Ordinary melee attacks remain unchanged whenever the mob is not in a valid mace-smash fall.
+
+Vanilla first calculates base attack damage, enchantments, and fall-height mace bonus. The final result of the skill-triggered smash is then multiplied by (1-damageReduction). The default damageReduction of 0.5 therefore halves the final mace damage. Vanilla mace sounds, knockback, durability use, and fall-state handling are preserved.
+
+<details>
+<summary>parameters structure</summary>
+
+```text
+mace:
+    {
+        enable: <bool>,
+        smashRange: <float>,
+        hitChance: <float>,
+        damageReduction: <float>,
+        smashCooldownTicks: <int>
+    }
+```
+
+</details>
+
+<details>
+<summary>details of parameters</summary>
+
+```text
+enable
+Meaning: Whether this AI skill is enabled
+Type: bool
+Range: 0b, 1b
+Default: 0b
+
+smashRange
+Meaning: Maximum target distance at which a falling mob can immediately start a smash check; line of sight is also required
+Type: float
+Range: [0.0f, 64.0f]
+Default: 3.0f
+
+hitChance
+Meaning: Chance for each smash check to succeed and perform the attack
+Type: float
+Range: [0.0f, 1.0f]
+Default: 0.5f
+
+damageReduction
+Meaning: Final damage reduction ratio for a skill-triggered mace smash; actual damage is multiplied by (1-damageReduction)
+Type: float
+Range: [0.0f, 1.0f]
+Default: 0.5f
+Note: 0.0 leaves damage unchanged, 0.5 halves final damage, and 1.0 reduces final damage to 0
+
+smashCooldownTicks
+Meaning: Game ticks of cooldown after every smash check, whether the check succeeds or fails
+Type: integer
+Range: [0, 72000]
+Default: 100
+Note: 0 allows another check on the next game tick
+```
+
+Values outside these ranges are automatically clamped when the entity data is read.
+One second is normally equal to 20 game ticks.
+
+</details>
+
+<details>
+<summary>command examples</summary>
+
+```text
+Summon a zombie holding a mace in its main hand and using all default mace parameters.
+summon zombie ~ ~ ~ {PmbAi:{mace:{enable:1b}}, equipment:{mainhand:{id:mace}}}
+
+Summon a zombie that always performs a smash check within 4 blocks, deals 75% of normal mace damage, and enters a 3-second cooldown after every check.
+summon zombie ~ ~ ~ {PmbAi:{mace:{enable:1b, smashRange:4.0f, hitChance:1.0f, damageReduction:0.25f, smashCooldownTicks:60}}, equipment:{mainhand:{id:mace}}}
+
+Summon a zombie with both downward wind-charge bounce and mace-smash AI enabled.
+summon zombie ~ ~ ~ {PmbAi:{wind_charge:{enable:1b, bounceRange:6.0f, bounceChance:1.0f}, mace:{enable:1b}}, equipment:{mainhand:{id:mace}, offhand:{id:wind_charge}}}
+
+Disable mace AI on the nearest zombie without removing its other configured parameters.
+data merge entity @e[type=zombie,sort=nearest,limit=1] {PmbAi:{mace:{enable:0b}}}
 ```
 
 </details>

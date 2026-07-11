@@ -9,6 +9,7 @@
 		"PmbMoveControlShieldVulnerabilityMixin",
 		"PmbMobShieldMixin",
 		"PmbMobWindChargeMixin",
+		"PmbMobMaceMixin",
 		"PmbPlayerCriticalAttackMixin"
 	],
 	"client": [

@@ -11,6 +11,23 @@ Year.Month.Day-No.
 
 ## Record
 
+### 26.7.11-1
+Added the mace AI skill.
+
+Added enable, smashRange, hitChance, damageReduction, and smashCooldownTicks with defaults of 0b, 3.0, 0.5, 0.5, and 100 respectively. All parameters are included in NBT reading, saving, configuration detection, and clamping.
+
+Mace AI activates only while a mob holds a vanilla mace in its main hand, is airborne and moving downward, and meets the vanilla minimum fall distance for a mace smash. The target must also be alive, attackable, visible, and within smashRange.
+
+Once eligible, the mob immediately performs one hitChance check and enters the smashCooldownTicks cooldown whether the check succeeds or fails. On success, it faces the target, swings its main hand, and attacks through the vanilla Mob and mace paths. On failure, no attack is performed.
+
+While the skill is enabled and the mob is in a valid falling-mace state, ordinary melee-goal attacks that did not pass through the mace skill check are prevented. This stops them from bypassing hitChance, smashCooldownTicks, or damageReduction. Ordinary melee attacks in other states remain unchanged.
+
+A skill-triggered mace attack first calculates vanilla base damage, enchantments, and fall-height bonus, then multiplies the final damage by (1-damageReduction). The default 0.5 halves final damage while preserving vanilla mace sounds, knockback, durability use, and fall-state handling.
+
+Mace AI does not trigger while the mob has NoAI enabled or is in shield-break vulnerability. Added the complete English and Chinese structures, parameter references, and command examples.
+
+mace can work together with downward wind_charge bounce: wind-charge AI handles launch, airborne target retention, and movement, while mace AI controls the falling smash chance, cooldown, and damage.
+
 ### 26.7.10-2
 Added the wind_charge AI skill as a shared foundation that can also be used by future wind-charge mace and wind-charge spear AI behaviours.
 
