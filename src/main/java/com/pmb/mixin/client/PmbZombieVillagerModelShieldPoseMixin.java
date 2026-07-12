@@ -1,13 +1,18 @@
 package com.pmb.mixin.client;
 
 import com.pmb.client.PmbZombieShieldPose;
+import com.pmb.client.PmbBowPose;
+import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.model.AnimationUtils;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.monster.zombie.ZombieVillagerModel;
 import net.minecraft.client.renderer.entity.state.UndeadRenderState;
+import net.minecraft.client.renderer.entity.state.ZombieVillagerRenderState;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(ZombieVillagerModel.class)
 public class PmbZombieVillagerModelShieldPoseMixin {
@@ -15,5 +20,11 @@ public class PmbZombieVillagerModelShieldPoseMixin {
 	private void pmb$keepBlockingArmPose(ModelPart leftArm, ModelPart rightArm, boolean isAggressive,
 			UndeadRenderState state) {
 		PmbZombieShieldPose.keepBlockingArmPose(leftArm, rightArm, isAggressive, state);
+	}
+
+	@Inject(method = "setupAnim(Lnet/minecraft/client/renderer/entity/state/ZombieVillagerRenderState;)V", at = @At("TAIL"))
+	private void pmb$forceBowPose(ZombieVillagerRenderState state, CallbackInfo info) {
+		HumanoidModel<?> model = (HumanoidModel<?>) (Object) this;
+		PmbBowPose.pose(state, model.head, model.rightArm, model.leftArm);
 	}
 }

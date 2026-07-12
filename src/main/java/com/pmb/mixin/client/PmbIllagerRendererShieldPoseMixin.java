@@ -8,6 +8,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.HumanoidArm;
 import net.minecraft.world.entity.monster.illager.AbstractIllager;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -19,6 +20,10 @@ public class PmbIllagerRendererShieldPoseMixin {
 	private void pmb$extractBlockingArmPose(AbstractIllager illager, IllagerRenderState state, float partialTick,
 			CallbackInfo info) {
 		if (!illager.isUsingItem()) {
+			return;
+		}
+		if (illager.getUsedItemHand() == InteractionHand.MAIN_HAND && illager.getMainHandItem().is(Items.BOW)) {
+			state.armPose = AbstractIllager.IllagerArmPose.BOW_AND_ARROW;
 			return;
 		}
 

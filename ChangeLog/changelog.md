@@ -11,6 +11,31 @@ Year.Month.Day-No.
 
 ## Record
 
+### 26.7.11-2
+Added the bow AI skill, which runs only while a mob holds a vanilla bow in its main hand, with a low-trajectory line mode and fixed high-angle arc mode.
+
+Added enable, doConsume, and modePriority plus independent range, cooldown, shooting chance, accuracy, charge time, and initial-speed parameters for both modes. modePriority accepts only "line" or "arc" and invalid values fall back to "line". A ShootChance of 0.0 completely disables that mode.
+
+Added mobileWhileShooting, lineSafeDistance, and arcSafeDistance. Inside the current mode's SafeDistance, the shooter stops melee navigation and retreats while aiming regardless of mobileWhileShooting. Outside the safe distance but still inside the mode range, mobileWhileShooting controls skeleton-like randomized forward, backward, and sideways strafing.
+
+line can be checked at distances no greater than lineRange and uses linePower, moving-target lead, and light gravity compensation. arc can be checked from arcMinRange through arcMaxRange, uses arcAngle as a fixed angle, and numerically simulates vanilla arrow drag of 0.99 and gravity of 0.05 to binary-search the required initial speed, limited by arcMaxPower.
+
+range controls only whether shooting behaviour starts and does not guarantee physical reach. If arc requires more than arcMaxPower or has no complete solution, it still fires at the configured angle and power limit and may miss.
+
+modePriority resolves simultaneous ready modes. A failed priority-mode chance check does not fall back during the same tick; if the priority mode is cooling down or otherwise not ready, the other mode may be checked. Selecting a mode immediately begins its CooldownTicks whether the chance succeeds or fails.
+
+After a successful chance check, the mob draws its main-hand bow for the corresponding ChargeTicks; 0 releases immediately. Its head and arms follow the calculated launch vector while drawing, giving line a low aiming pose and arc a visibly raised pose matching its designed angle. Charging is cancelled while preserving cooldown if the target dies, becomes unattackable, leaves range or sight, the bow leaves the main hand, ammunition becomes unavailable, NoAI is enabled, or shield-break vulnerability begins.
+
+Supported off-hand arrows are preferred. With doConsume 0b they are not consumed and an empty off hand supplies unlimited normal arrows. With doConsume 1b a supported off-hand arrow is required and one is consumed only after release. The empty off hand is explicitly synchronized after the last arrow. Bow durability is not additionally consumed.
+
+With bow enabled and held in the main hand, all melee attacks are blocked so melee goals cannot deal damage while shooting. Once a usable mode range is reached, melee navigation stops and bow-specific safe-distance movement takes over. Vanilla RangedBowAttackGoal draw and fire calls remain suppressed, preventing skeletons from bypassing PMB chances and cooldowns.
+
+Suppressed strafe commands written directly by the skeleton's vanilla RangedBowAttackGoal while permitting only PMB bow retreat and randomized movement commands, so mobileWhileShooting 0b now makes skeletons genuinely shoot from a stationary position.
+
+The main-hand bow pose is now forcibly applied at the end of model animation for normal humanoids, skeletons, zombies, and illagers so model-specific attacks or crossed-arm animations cannot replace it. The special held-item layers used by vindicators and evokers also render their bow and arms while drawing.
+
+All parameters are included in NBT reading, saving, configuration detection, defaults, and clamping, with complete English and Chinese structures, references, and command examples.
+
 ### 26.7.11-1
 Added the mace AI skill.
 

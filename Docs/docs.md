@@ -49,6 +49,29 @@ Available parameters and the syntax used to define the data structure are given 
                     hitChance: <float>,
                     damageReduction: <float>,
                     smashCooldownTicks: <int>
+                },
+            bow:
+                {
+                    enable: <bool>,
+                    doConsume: <bool>,
+                    modePriority: <string>,
+                    mobileWhileShooting: <bool>,
+                    lineRange: <float>,
+                    lineSafeDistance: <float>,
+                    lineCooldownTicks: <int>,
+                    lineShootChance: <float>,
+                    lineShootAccuracy: <float>,
+                    lineChargeTicks: <int>,
+                    linePower: <float>,
+                    arcMinRange: <float>,
+                    arcMaxRange: <float>,
+                    arcSafeDistance: <float>,
+                    arcCooldownTicks: <int>,
+                    arcShootChance: <float>,
+                    arcShootAccuracy: <float>,
+                    arcChargeTicks: <int>,
+                    arcAngle: <float>,
+                    arcMaxPower: <float>
                 }
         }
 }
@@ -78,7 +101,7 @@ PmbAi:
     }
 ```
 
-shield, wind_charge, and mace are currently implemented. bow is an example of a possible future skill tag and is not currently available.
+shield, wind_charge, mace, and bow are currently implemented.
 
 </details>
 
@@ -310,6 +333,206 @@ summon zombie ~ ~ ~ {PmbAi:{wind_charge:{enable:1b, bounceRange:6.0f, bounceChan
 
 Disable mace AI on the nearest zombie without removing its other configured parameters.
 data merge entity @e[type=zombie,sort=nearest,limit=1] {PmbAi:{mace:{enable:0b}}}
+```
+
+</details>
+
+### bow
+
+Bow AI runs only while a mob holds a vanilla bow in its main hand. It provides a low-trajectory line mode and a fixed high-angle arc mode. Range parameters only control whether shooting behaviour can start; actual arrow reach is determined by power and vanilla projectile physics.
+
+Both modes require a living, attackable, visible target. line can be checked at distances no greater than lineRange. arc can be checked from arcMinRange through arcMaxRange. Setting either ShootChance to 0.0 completely disables that mode.
+
+When both modes satisfy their distance, ammunition, and cooldown conditions, modePriority selects line or arc. A failed chance check by the priority mode does not fall back to the other mode during the same tick. If the priority mode is still cooling down or otherwise not ready, the other mode may be checked. Selecting a mode immediately starts its CooldownTicks whether the chance check succeeds or fails.
+
+After a successful chance check, the mob draws its main-hand bow for the corresponding ChargeTicks. A value of 0 releases during the same tick. While drawing, its head and both arms continuously follow the actual calculated launch vector, so line displays low-trajectory aiming and arc visibly raises the bow to its designed angle. Charging is cancelled while preserving the cooldown if the target dies, becomes unattackable, leaves the current mode's range, leaves line of sight, the bow leaves the main hand, required ammunition becomes unavailable, NoAI is enabled, or shield-break vulnerability begins.
+
+line uses linePower as a fixed initial speed and calculates a low trajectory from the target's latest position, velocity, and light gravity compensation. arc uses arcAngle as a fixed angle above horizontal, numerically simulates vanilla arrow drag of 0.99 and gravity of 0.05, binary-searches the required initial speed, and iteratively leads a moving target. If the required speed exceeds arcMaxPower or no complete solution exists, it still fires at arcMaxPower and may miss because of insufficient physical reach. Accuracy 1.0 adds no random spread.
+
+Supported arrows in the off hand are preferred. With doConsume 0b, arrows are not consumed and a mob with no off-hand arrow uses unlimited normal arrows. With doConsume 1b, a supported off-hand arrow is required and one is consumed only after an arrow is actually released. Empty off-hand state is explicitly synchronized after the last arrow. The bow does not take additional durability damage.
+
+While this skill is enabled and the mob keeps a bow in its main hand, all melee attacks are blocked. Inside the current mode's shooting range, melee navigation stops. Inside the corresponding SafeDistance, the mob retreats while aiming regardless of mobileWhileShooting. Arc retreat also applies after a target has crossed inside arcMinRange, allowing an arc-only shooter to try to reopen distance. Outside SafeDistance but still inside the mode range, mobileWhileShooting 1b enables skeleton-like randomized forward, backward, and sideways strafing; 0b keeps the shooter stationary.
+
+Vanilla RangedBowAttackGoal draw, fire, and strafe writes are suppressed so skeletons cannot bypass the configured modes, chances, cooldowns, or mobileWhileShooting; PMB's own retreat and randomized movement commands remain permitted. The bow pose is forcibly reapplied at the end of model animation, preventing zombie attack animations, illager crossed arms, or other model-specific animations from replacing it. The special held-item layers used by vindicators and evokers also render the bow and arms.
+
+<details>
+<summary>parameters structure</summary>
+
+```text
+bow:
+    {
+        enable: <bool>,
+        doConsume: <bool>,
+        modePriority: <string>,
+        mobileWhileShooting: <bool>,
+        lineRange: <float>,
+        lineSafeDistance: <float>,
+        lineCooldownTicks: <int>,
+        lineShootChance: <float>,
+        lineShootAccuracy: <float>,
+        lineChargeTicks: <int>,
+        linePower: <float>,
+        arcMinRange: <float>,
+        arcMaxRange: <float>,
+        arcSafeDistance: <float>,
+        arcCooldownTicks: <int>,
+        arcShootChance: <float>,
+        arcShootAccuracy: <float>,
+        arcChargeTicks: <int>,
+        arcAngle: <float>,
+        arcMaxPower: <float>
+    }
+```
+
+</details>
+
+<details>
+<summary>details of parameters</summary>
+
+```text
+enable
+Meaning: Whether this AI skill is enabled
+Type: bool
+Range: 0b, 1b
+Default: 0b
+
+doConsume
+Meaning: Whether releasing an arrow consumes one supported arrow from the off hand
+Type: bool
+Range: 0b, 1b
+Default: 0b
+
+modePriority
+Meaning: Mode selected when line and arc can both be checked
+Type: string
+Range: "line", "arc"
+Default: "line"
+Note: Invalid values fall back to "line"
+
+mobileWhileShooting
+Meaning: Whether to use randomized forward, backward, and sideways strafing outside the safe distance but inside the current mode's range
+Type: bool
+Range: 0b, 1b
+Default: 1b
+Note: A target inside the safe distance always causes retreat regardless of this parameter
+
+lineRange
+Meaning: Maximum target distance at which line mode can begin a shooting check
+Type: float
+Range: [0.0f, 256.0f]
+Default: 16.0f
+
+lineSafeDistance
+Meaning: Target distance below which line mode forces the shooter to retreat
+Type: float
+Range: [0.0f, 256.0f]
+Default: 6.0f
+
+lineCooldownTicks
+Meaning: Cooldown after every line check, including failed checks, in game ticks
+Type: integer
+Range: [0, 72000]
+Default: 40
+
+lineShootChance
+Meaning: Chance for a line check to succeed and begin drawing
+Type: float
+Range: [0.0f, 1.0f]
+Default: 0.8f
+Note: 0.0 completely disables line mode
+
+lineShootAccuracy
+Meaning: Accuracy of line arrows; higher values produce less random spread
+Type: float
+Range: [0.0f, 1.0f]
+Default: 0.9f
+
+lineChargeTicks
+Meaning: Bow-drawing game ticks after a successful line check
+Type: integer
+Range: [0, 72000]
+Default: 20
+
+linePower
+Meaning: Initial speed of line arrows, not real-world kinetic energy
+Type: float
+Range: [0.1f, 10.0f]
+Default: 1.6f
+
+arcMinRange
+Meaning: Minimum target distance at which arc mode can begin a shooting check
+Type: float
+Range: [0.0f, 256.0f]
+Default: 16.0f
+
+arcMaxRange
+Meaning: Maximum target distance for arc checks; values below arcMinRange are raised to arcMinRange
+Type: float
+Range: [arcMinRange, 256.0f]
+Default: 48.0f
+
+arcSafeDistance
+Meaning: Target distance below which arc mode forces the shooter to retreat
+Type: float
+Range: [0.0f, 256.0f]
+Default: 12.0f
+
+arcCooldownTicks
+Meaning: Cooldown after every arc check, including failed checks, in game ticks
+Type: integer
+Range: [0, 72000]
+Default: 60
+
+arcShootChance
+Meaning: Chance for an arc check to succeed and begin drawing
+Type: float
+Range: [0.0f, 1.0f]
+Default: 0.80f
+Note: 0.0 completely disables arc mode
+
+arcShootAccuracy
+Meaning: Accuracy of arc arrows; higher values produce less random spread
+Type: float
+Range: [0.0f, 1.0f]
+Default: 0.9f
+
+arcChargeTicks
+Meaning: Bow-drawing game ticks after a successful arc check
+Type: integer
+Range: [0, 72000]
+Default: 20
+
+arcAngle
+Meaning: Fixed arc firing angle above horizontal, in degrees
+Type: float
+Range: [1.0f, 89.0f]
+Default: 42.0f
+
+arcMaxPower
+Meaning: Maximum arrow initial speed available to the arc trajectory solver
+Type: float
+Range: [0.1f, 10.0f]
+Default: 3.0f
+Note: If this limit cannot reach the target, the arrow is still fired at the limit
+```
+
+Values outside these ranges are automatically clamped when entity data is read.
+One second is normally equal to 20 game ticks.
+
+</details>
+
+<details>
+<summary>command examples</summary>
+
+```text
+Summon a zombie holding a bow in its main hand and using default bow AI without requiring arrows.
+summon zombie ~ ~ ~ {PmbAi:{bow:{enable:1b}}, equipment:{mainhand:{id:bow}}}
+
+Summon a skeleton with 64 off-hand arrows, real arrow consumption, and customized line and arc modes.
+summon skeleton ~ ~ ~ {PmbAi:{bow:{enable:1b, doConsume:1b, modePriority:"arc", mobileWhileShooting:1b, lineRange:14.0f, lineSafeDistance:6.0f, lineCooldownTicks:30, lineShootChance:0.8f, lineShootAccuracy:1.0f, lineChargeTicks:10, linePower:2.0f, arcMinRange:12.0f, arcMaxRange:64.0f, arcSafeDistance:10.0f, arcCooldownTicks:50, arcShootChance:0.6f, arcShootAccuracy:0.95f, arcChargeTicks:20, arcAngle:60.0f, arcMaxPower:3.5f}}, equipment:{mainhand:{id:bow}, offhand:{id:arrow,count:64}}}
+
+Disable bow AI on the nearest skeleton without removing its other configured parameters.
+data merge entity @e[type=skeleton,sort=nearest,limit=1] {PmbAi:{bow:{enable:0b}}}
 ```
 
 </details>

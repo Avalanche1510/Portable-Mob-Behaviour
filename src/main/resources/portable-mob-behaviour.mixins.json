@@ -10,12 +10,15 @@
 		"PmbMobShieldMixin",
 		"PmbMobWindChargeMixin",
 		"PmbMobMaceMixin",
+		"PmbMobBowMixin",
+		"PmbRangedBowAttackGoalMixin",
 		"PmbPlayerCriticalAttackMixin"
 	],
 	"client": [
 		"client.PmbAbstractZombieModelShieldPoseMixin",
 		"client.PmbEvokerItemInHandLayerShieldMixin",
 		"client.PmbHumanoidMobRendererShieldPoseMixin",
+		"client.PmbHumanoidModelBowPoseMixin",
 		"client.PmbIllagerModelShieldPoseMixin",
 		"client.PmbIllagerRendererShieldPoseMixin",
 		"client.PmbLivingEntityRendererShieldVulnerabilityMixin",

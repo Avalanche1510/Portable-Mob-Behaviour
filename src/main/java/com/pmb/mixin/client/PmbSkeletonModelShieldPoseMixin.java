@@ -1,5 +1,6 @@
 package com.pmb.mixin.client;
 
+import com.pmb.client.PmbBowPose;
 import net.minecraft.client.model.HumanoidModel;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.monster.skeleton.SkeletonModel;
@@ -55,11 +56,15 @@ public class PmbSkeletonModelShieldPoseMixin {
 
 	@Inject(method = "setupAnim(Lnet/minecraft/client/renderer/entity/state/SkeletonRenderState;)V", at = @At("TAIL"))
 	private void pmb$restoreBlockingArmPose(SkeletonRenderState state, CallbackInfo info) {
+		HumanoidModel<?> model = (HumanoidModel<?>) (Object) this;
+		if (PmbBowPose.pose(state, model.head, model.rightArm, model.leftArm)) {
+			pmb$hasBlockingArmPose = false;
+			return;
+		}
 		if (!pmb$hasBlockingArmPose) {
 			return;
 		}
 
-		HumanoidModel<?> model = (HumanoidModel<?>) (Object) this;
 		ModelPart arm = pmb$blockingArmRight ? model.rightArm : model.leftArm;
 		arm.xRot = pmb$blockingArmXRot;
 		arm.yRot = pmb$blockingArmYRot;

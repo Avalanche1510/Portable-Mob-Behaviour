@@ -1,5 +1,6 @@
 package com.pmb.mixin.client;
 
+import com.pmb.client.PmbBowPose;
 import net.minecraft.client.model.geom.ModelPart;
 import net.minecraft.client.model.monster.illager.IllagerModel;
 import net.minecraft.client.renderer.entity.state.IllagerRenderState;
@@ -49,6 +50,14 @@ public class PmbIllagerModelShieldPoseMixin {
 
 	@Inject(method = "setupAnim(Lnet/minecraft/client/renderer/entity/state/IllagerRenderState;)V", at = @At("TAIL"))
 	private void pmb$poseBlockingArm(IllagerRenderState state, CallbackInfo info) {
+		if (PmbBowPose.pose(state, head, rightArm, leftArm)) {
+			arms.visible = false;
+			rightArm.x = PMB_RIGHT_ARM_X;
+			leftArm.x = PMB_LEFT_ARM_X;
+			rightArm.y = leftArm.y = PMB_ARM_Y;
+			rightArm.z = leftArm.z = PMB_ARM_Z;
+			return;
+		}
 		HumanoidArm usedArm = pmb$blockingArm(state);
 		if (usedArm == null) {
 			return;
