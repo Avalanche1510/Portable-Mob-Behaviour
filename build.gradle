@@ -3,6 +3,17 @@ plugins {
 	id 'maven-publish'
 }
 
+loom {
+	splitEnvironmentSourceSets()
+
+	mods {
+		"portable-mob-behaviour" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+}
+
 version = project.mod_version
 group = project.maven_group
 

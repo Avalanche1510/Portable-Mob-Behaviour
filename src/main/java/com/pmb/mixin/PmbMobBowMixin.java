@@ -33,6 +33,7 @@ public abstract class PmbMobBowMixin extends LivingEntity {
 	@Unique private static final int PMB_BOW_ARC = 2;
 	@Unique private static final double PMB_ARROW_DRAG = 0.99D;
 	@Unique private static final double PMB_ARROW_GRAVITY = 0.05D;
+	@Unique private static final float PMB_FULL_DRAW_BOW_SPEED = 3.0F;
 	@Unique private static final int PMB_ARC_SIMULATION_TICKS = 300;
 
 	@Unique private int pmb$bowChargeMode;
@@ -200,10 +201,10 @@ public abstract class PmbMobBowMixin extends LivingEntity {
 		Vec3 velocity;
 		float accuracy;
 		if (mode == PMB_BOW_LINE) {
-			velocity = pmb$lineVelocity(target, bowAi.linePower());
+			velocity = pmb$lineVelocity(target, pmb$bowSpeed(bowAi.linePower()));
 			accuracy = bowAi.lineShootAccuracy();
 		} else {
-			velocity = pmb$arcVelocity(target, bowAi.arcAngle(), bowAi.arcMaxPower());
+			velocity = pmb$arcVelocity(target, bowAi.arcAngle(), pmb$bowSpeed(bowAi.arcMaxPower()));
 			accuracy = bowAi.arcShootAccuracy();
 		}
 		pmb$faceBowVelocity(mob, velocity);
@@ -307,9 +308,14 @@ public abstract class PmbMobBowMixin extends LivingEntity {
 	@Unique
 	private void pmb$faceBowTrajectory(Mob mob, LivingEntity target, PmbBowAiData bowAi, int mode) {
 		Vec3 velocity = mode == PMB_BOW_LINE
-				? pmb$lineVelocity(target, bowAi.linePower())
-				: pmb$arcVelocity(target, bowAi.arcAngle(), bowAi.arcMaxPower());
+				? pmb$lineVelocity(target, pmb$bowSpeed(bowAi.linePower()))
+				: pmb$arcVelocity(target, bowAi.arcAngle(), pmb$bowSpeed(bowAi.arcMaxPower()));
 		pmb$faceBowVelocity(mob, velocity);
+	}
+
+	@Unique
+	private float pmb$bowSpeed(float multiplier) {
+		return PMB_FULL_DRAW_BOW_SPEED * multiplier;
 	}
 
 	@Unique

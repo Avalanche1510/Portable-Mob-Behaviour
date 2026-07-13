@@ -20,7 +20,7 @@ public class PmbBowAiData {
 	private static final float DEFAULT_LINE_SHOOT_CHANCE = 0.8F;
 	private static final float DEFAULT_LINE_SHOOT_ACCURACY = 0.9F;
 	private static final int DEFAULT_LINE_CHARGE_TICKS = 20;
-	private static final float DEFAULT_LINE_POWER = 1.6F;
+	private static final float DEFAULT_LINE_POWER = 1.0F;
 	private static final float DEFAULT_ARC_MIN_RANGE = 16.0F;
 	private static final float DEFAULT_ARC_MAX_RANGE = 48.0F;
 	private static final float DEFAULT_ARC_SAFE_DISTANCE = 12.0F;
@@ -29,7 +29,7 @@ public class PmbBowAiData {
 	private static final float DEFAULT_ARC_SHOOT_ACCURACY = 0.9F;
 	private static final int DEFAULT_ARC_CHARGE_TICKS = 20;
 	private static final float DEFAULT_ARC_ANGLE = 42.0F;
-	private static final float DEFAULT_ARC_MAX_POWER = 3.0F;
+	private static final float DEFAULT_ARC_MAX_POWER = 1.0F;
 	private static final int MAX_TICKS = 72000;
 
 	private boolean configured;

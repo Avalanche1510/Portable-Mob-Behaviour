@@ -11,6 +11,19 @@ Year.Month.Day-No.
 
 ## Record
 
+### 26.7.13-1
+Enabled Loom splitEnvironmentSourceSets. Common and server code remains in src/main, while every model, render-state helper, client mixin, client helper, and data-generation entrypoint has moved to src/client. The mod still builds as one universal two-sided JAR.
+
+Split the former mixin configuration into a common configuration and a client-only configuration. fabric.mod.json now declares separate common and client entrypoints and an environment-restricted client mixin configuration. Common sources no longer reference net.minecraft.client packages, so a dedicated server never loads client classes.
+
+Added an independent network protocol number and a bidirectional configuration-stage handshake. Before a player enters the world, the server verifies the PMB configuration channel, sends a protocol challenge, and waits for the client response. Missing PMB or incompatible protocols produce an explicit disconnect reason. The client also rejects servers that do not declare the PMB response channel. Display versions may differ while the network protocol remains compatible.
+
+Audited client animation-state synchronization. Shield use, bow drawing, held items, and aiming rotation continue to use vanilla tracked entity state. Shield-break vulnerability shaking is confirmed to use remaining vulnerability ticks synchronized through SynchedEntityData, and client rendering does not read server-only PmbAi configuration.
+
+Refactored the meaning of the bow AI linePower and arcMaxPower parameters. They no longer represent absolute initial speed directly; both are multipliers of the vanilla player's fully drawn bow speed of 3.0. Both now default to 1.0f, or 100% vanilla full-draw speed. line uses 3.0 times linePower as its fixed initial speed, while arc uses 3.0 times arcMaxPower as the trajectory solver's speed limit. The existing [0.1f,10.0f] range therefore represents 10% through 1000%.
+
+The dynamic Faction module is not implemented in this version and remains deferred to 26.7.13-2.
+
 ### 26.7.11-2
 Added the bow AI skill, which runs only while a mob holds a vanilla bow in its main hand, with a low-trajectory line mode and fixed high-angle arc mode.
 

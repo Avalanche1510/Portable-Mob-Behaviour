@@ -18,12 +18,19 @@
 		"main": [
 			"com.pmb.PortableMobBehaviour"
 		],
+		"client": [
+			"com.pmb.client.PortableMobBehaviourClient"
+		],
 		"fabric-datagen": [
-			"com.pmb.PortableMobBehaviourDataGenerator"
+			"com.pmb.client.PortableMobBehaviourDataGenerator"
 		]
 	},
 	"mixins": [
-		"portable-mob-behaviour.mixins.json"
+		"portable-mob-behaviour.mixins.json",
+		{
+			"config": "portable-mob-behaviour.client.mixins.json",
+			"environment": "client"
+		}
 	],
 	"depends": {
 		"fabricloader": ">=0.19.3",

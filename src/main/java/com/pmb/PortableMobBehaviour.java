@@ -1,5 +1,6 @@
 package com.pmb;
 
+import com.pmb.network.PmbProtocolNetworking;
 import net.fabricmc.api.ModInitializer;
 
 import net.minecraft.resources.Identifier;
@@ -17,6 +18,7 @@ public class PortableMobBehaviour implements ModInitializer {
 
 	@Override
 	public void onInitialize() {
+		PmbProtocolNetworking.initialize();
 		LOGGER.info("Portable Mob Behaviour initialized.");
 	}
 

@@ -12,6 +12,8 @@
 该数据结构可以通过使用指令或数据包，在游戏内即时修改并生效，立刻修改或允许特定的AI行为。
 可选的参数和定义数据结构的语法将在文档和更新日志中给出。
 
+本模组需要安装在客户端和服务端。双方通过独立网络协议号检查兼容性，专用服务端与客户端使用同一个通用JAR。
+
 ## 资源指南：
 
 [模组文档](https://github.com/Avalanche1510/Portable-Mob-Behaviour/blob/26.1.1/Docs/模组文档.md)  
@@ -56,6 +58,8 @@ This project is available under the CC0 license. Feel free to learn from it and 
 This mod introduces a new, customizable, portable data structure for mob AI behaviours.
 Players can dynamically modify or enable special mob behaviours using commands or data packs.
 Available parameters and syntax are documented in the documentation and change log.
+
+This mod is required on both client and server. Both sides verify compatibility through an independent network protocol number and use the same universal JAR.
 
 ## Resource Guide:
 

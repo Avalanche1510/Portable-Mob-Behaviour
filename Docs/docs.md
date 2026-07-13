@@ -6,6 +6,14 @@ This mod introduces a new, highly customizable, and relatively simple data struc
 Players can use commands or data packs to modify the data in game. Changes take effect immediately and can modify or enable specific AI behaviours.
 Available parameters and the syntax used to define the data structure are given below.
 
+## Two-sided deployment and synchronization
+
+The mod is built as one universal JAR for both client and server, while common and client sources are separated through Loom source sets. Dedicated servers load only common and server logic; models, rendering, and client mixins load only on physical clients.
+
+Both client and server must install this mod. During connection configuration they exchange an independent PMB network protocol number. A missing client mod, missing server mod, or incompatible protocol disconnects before entering the world with an explicit reason. Display versions do not need to match when their network protocol is compatible.
+
+AI decisions, damage, and PmbAi configuration remain server-authoritative. Shield use, bow drawing, held items, and rotation use vanilla synchronized state. Remaining shield-break vulnerability time is synchronized through SynchedEntityData so remote clients render shaking correctly. Complete PmbAi configuration is not sent to clients.
+
 ## Complete data structure
 
 ```text
@@ -347,7 +355,7 @@ When both modes satisfy their distance, ammunition, and cooldown conditions, mod
 
 After a successful chance check, the mob draws its main-hand bow for the corresponding ChargeTicks. A value of 0 releases during the same tick. While drawing, its head and both arms continuously follow the actual calculated launch vector, so line displays low-trajectory aiming and arc visibly raises the bow to its designed angle. Charging is cancelled while preserving the cooldown if the target dies, becomes unattackable, leaves the current mode's range, leaves line of sight, the bow leaves the main hand, required ammunition becomes unavailable, NoAI is enabled, or shield-break vulnerability begins.
 
-line uses linePower as a fixed initial speed and calculates a low trajectory from the target's latest position, velocity, and light gravity compensation. arc uses arcAngle as a fixed angle above horizontal, numerically simulates vanilla arrow drag of 0.99 and gravity of 0.05, binary-searches the required initial speed, and iteratively leads a moving target. If the required speed exceeds arcMaxPower or no complete solution exists, it still fires at arcMaxPower and may miss because of insufficient physical reach. Accuracy 1.0 adds no random spread.
+linePower and arcMaxPower are multipliers of the vanilla player's fully drawn bow initial speed of 3.0, not absolute initial speeds. line uses 3.0 times linePower as its fixed initial speed and calculates a low trajectory from the target's latest position, velocity, and light gravity compensation. arc uses arcAngle as a fixed angle above horizontal, numerically simulates vanilla arrow drag of 0.99 and gravity of 0.05, binary-searches the required initial speed, and iteratively leads a moving target. If the required speed exceeds 3.0 times arcMaxPower or no complete solution exists, it still fires at that speed limit and may miss because of insufficient physical reach. Accuracy 1.0 adds no random spread.
 
 Supported arrows in the off hand are preferred. With doConsume 0b, arrows are not consumed and a mob with no off-hand arrow uses unlimited normal arrows. With doConsume 1b, a supported off-hand arrow is required and one is consumed only after an arrow is actually released. Empty off-hand state is explicitly synchronized after the last arrow. The bow does not take additional durability damage.
 
@@ -454,10 +462,11 @@ Range: [0, 72000]
 Default: 20
 
 linePower
-Meaning: Initial speed of line arrows, not real-world kinetic energy
+Meaning: Fixed line initial-speed multiplier relative to the vanilla player's fully drawn bow speed of 3.0
 Type: float
 Range: [0.1f, 10.0f]
-Default: 1.6f
+Default: 1.0f
+Note: 1.0 is 100% vanilla full-draw speed, producing an actual initial speed of 3.0; the range represents 10% through 1000%
 
 arcMinRange
 Meaning: Minimum target distance at which arc mode can begin a shooting check
@@ -509,11 +518,11 @@ Range: [1.0f, 89.0f]
 Default: 42.0f
 
 arcMaxPower
-Meaning: Maximum arrow initial speed available to the arc trajectory solver
+Meaning: Arc trajectory-solver speed-limit multiplier relative to the vanilla player's fully drawn bow speed of 3.0
 Type: float
 Range: [0.1f, 10.0f]
-Default: 3.0f
-Note: If this limit cannot reach the target, the arrow is still fired at the limit
+Default: 1.0f
+Note: 1.0 gives a speed limit of 3.0; if this limit cannot reach the target, the arrow is still fired at the limit
 ```
 
 Values outside these ranges are automatically clamped when entity data is read.
@@ -529,7 +538,7 @@ Summon a zombie holding a bow in its main hand and using default bow AI without 
 summon zombie ~ ~ ~ {PmbAi:{bow:{enable:1b}}, equipment:{mainhand:{id:bow}}}
 
 Summon a skeleton with 64 off-hand arrows, real arrow consumption, and customized line and arc modes.
-summon skeleton ~ ~ ~ {PmbAi:{bow:{enable:1b, doConsume:1b, modePriority:"arc", mobileWhileShooting:1b, lineRange:14.0f, lineSafeDistance:6.0f, lineCooldownTicks:30, lineShootChance:0.8f, lineShootAccuracy:1.0f, lineChargeTicks:10, linePower:2.0f, arcMinRange:12.0f, arcMaxRange:64.0f, arcSafeDistance:10.0f, arcCooldownTicks:50, arcShootChance:0.6f, arcShootAccuracy:0.95f, arcChargeTicks:20, arcAngle:60.0f, arcMaxPower:3.5f}}, equipment:{mainhand:{id:bow}, offhand:{id:arrow,count:64}}}
+summon skeleton ~ ~ ~ {PmbAi:{bow:{enable:1b, doConsume:1b, modePriority:"arc", mobileWhileShooting:1b, lineRange:14.0f, lineSafeDistance:6.0f, lineCooldownTicks:30, lineShootChance:0.8f, lineShootAccuracy:1.0f, lineChargeTicks:10, linePower:0.8f, arcMinRange:12.0f, arcMaxRange:64.0f, arcSafeDistance:10.0f, arcCooldownTicks:50, arcShootChance:0.6f, arcShootAccuracy:0.95f, arcChargeTicks:20, arcAngle:60.0f, arcMaxPower:1.25f}}, equipment:{mainhand:{id:bow}, offhand:{id:arrow,count:64}}}
 
 Disable bow AI on the nearest skeleton without removing its other configured parameters.
 data merge entity @e[type=skeleton,sort=nearest,limit=1] {PmbAi:{bow:{enable:0b}}}

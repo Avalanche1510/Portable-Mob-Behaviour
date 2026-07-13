@@ -1,0 +1,25 @@
+{
+	"required": true,
+	"package": "com.pmb.mixin.client",
+	"compatibilityLevel": "JAVA_25",
+	"client": [
+		"PmbAbstractZombieModelShieldPoseMixin",
+		"PmbEvokerItemInHandLayerShieldMixin",
+		"PmbHumanoidMobRendererShieldPoseMixin",
+		"PmbHumanoidModelBowPoseMixin",
+		"PmbIllagerModelShieldPoseMixin",
+		"PmbIllagerRendererShieldPoseMixin",
+		"PmbLivingEntityRendererShieldVulnerabilityMixin",
+		"PmbLivingEntityRenderStateMixin",
+		"PmbSkeletonModelShieldPoseMixin",
+		"PmbVindicatorItemInHandLayerShieldMixin",
+		"PmbZombieVillagerModelShieldPoseMixin",
+		"PmbZombifiedPiglinModelShieldPoseMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	},
+	"overwrites": {
+		"requireAnnotations": true
+	}
+}
