@@ -57,12 +57,17 @@ public abstract class PmbMobShieldMixin extends LivingEntity {
 		}
 
 		Mob mob = (Mob) (Object) this;
+		PmbShieldAiData shieldAi = ((PmbAiHolder) this).pmb$getAiData().shield();
+		if (!isAlive()) {
+			stopPmbShield(shieldAi);
+			((PmbShieldVulnerableHolder) this).pmb$setSyncedShieldVulnerableTicks(0);
+			return;
+		}
 		if (isGuardVillagersEntity(mob)) {
 			removePmbShieldSpeedModifier();
 			return;
 		}
 
-		PmbShieldAiData shieldAi = ((PmbAiHolder) this).pmb$getAiData().shield();
 		shieldAi.tickCooldowns();
 		if (!shieldAi.isConfigured()) {
 			((PmbShieldVulnerableHolder) this).pmb$setSyncedShieldVulnerableTicks(0);

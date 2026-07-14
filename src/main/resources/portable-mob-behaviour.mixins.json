@@ -8,11 +8,24 @@
 		"PmbLivingEntityShieldVulnerabilityMixin",
 		"PmbMoveControlShieldVulnerabilityMixin",
 		"PmbMobShieldMixin",
+		"PmbMobDeathAiMixin",
 		"PmbMobWindChargeMixin",
 		"PmbMobMaceMixin",
 		"PmbMobBowMixin",
 		"PmbRangedBowAttackGoalMixin",
-		"PmbPlayerCriticalAttackMixin"
+		"PmbPlayerCriticalAttackMixin",
+		"PmbServerPlayerFactionMixin",
+		"PmbMobFactionMixin",
+		"PmbLivingEntityFactionCombatMixin",
+		"PmbPlayerFactionCombatMixin",
+		"PmbEntityFactionTeamMixin",
+		"PmbSensorFactionMixin",
+		"PmbRaiderHoldGroundFactionMixin",
+		"PmbRaiderPathfindFactionMixin",
+		"PmbRaiderBannerFactionMixin",
+		"PmbEvokerFactionMixin",
+		"PmbPiglinAiFactionMixin",
+		"PmbPiglinBruteAiFactionMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

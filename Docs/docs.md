@@ -14,6 +14,165 @@ Both client and server must install this mod. During connection configuration th
 
 AI decisions, damage, and PmbAi configuration remain server-authoritative. Shield use, bow drawing, held items, and rotation use vanilla synchronized state. Remaining shield-break vulnerability time is synchronized through SynchedEntityData so remote clients render shaking correctly. Complete PmbAi configuration is not sent to clients.
 
+## Dynamic Factions
+
+Faction is a server-side dynamic relationship module independent of PmbAi skills. Players and every LivingEntity may join exactly one faction. Membership is stored in entity root NBT:
+
+```text
+PmbFaction:{
+    FactionName:"EmpireGuard"
+}
+```
+
+FactionName is an ordinary case-sensitive string and is not restricted by Minecraft's lowercase `namespace:path` resource-ID format. Commands accept any non-whitespace name directly without quotation marks, such as `EmpireGuard`, `北方联盟`, or `Raiders-02`. FactionName must refer to an existing server faction. Deleting a faction clears loaded members immediately, while unloaded members clear the invalid name when next loaded. Players retain membership after death and respawn.
+
+PmbFaction is persistent entity NBT read and saved by the server, not temporary client-display data; complete membership is not synchronized to clients. It may be written directly when an entity is summoned, so no follow-up selector is required:
+
+```mcfunction
+/pmb faction create IllagerCourt
+/summon minecraft:vindicator ~ ~ ~ {PmbFaction:{FactionName:"IllagerCourt"}}
+/summon minecraft:pillager ~ ~ ~ {PmbFaction:{FactionName:"IllagerCourt"},PmbAi:{bow:{enable:1b}},equipment:{mainhand:{id:"minecraft:bow"}}}
+/data merge entity @e[type=minecraft:vindicator,sort=nearest,limit=1] {PmbFaction:{FactionName:"IllagerCourt"}}
+```
+
+`/summon` writes only membership and does not create the faction. The named faction must already exist in server SavedData and FactionName must match its case exactly. An unknown name is cleared on the entity's next server tick. A data-pack function may create the faction first and then run a summon carrying PmbFaction in the same function.
+
+Definitions are stored in overworld SavedData, shared by every dimension, and are not fully synchronized to clients:
+
+```text
+Factions:{
+    "EmpireGuard":{
+        Rules:{
+            allowInternalConflict:0b,
+            allowFriendlyFire:1b,
+            groupRevenge:0b,
+            overrideTeamRules:1b,
+            defaultAttitude:"neutral",
+            evasiveSpeedMultiplier:1.25f
+        },
+        VanillaCompatRules:{
+            piglin:{
+                greed:1b,
+                guarding:1b,
+                avoidance:1b
+            }
+        },
+        Relationships:[
+            {
+                attitude:"hostile",
+                target:{
+                    factions:["Raiders"],
+                    teams:["red"],
+                    types:["minecraft:zombie","#minecraft:undead"],
+                    tags:["traitor"],
+                    reputation:["1..100"],
+                    roles:["guard"]
+                }
+            }
+        ],
+        Players:{
+            "<uuid>":{
+                reputation:0,
+                roles:["guard"]
+            }
+		}
+	}
+}
+```
+
+### Rules
+
+- `allowInternalConflict` defaults to `0b`. Disabled members are always allied; enabling it allows Relationships and defaultAttitude to produce internal hostility or evasion.
+- `allowFriendlyFire` defaults to `1b`. At `0b`, the victim's faction blocks melee, projectile-owner, and responsible-explosion damage from members or allies. Environmental damage is unchanged.
+- `groupRevenge` defaults to `0b`. Members respond when a member or directional ally is attacked, using each responder's FOLLOW_RANGE, but never retaliate against another member or ally.
+- `overrideTeamRules` defaults to `1b`. It allows Faction to replace vanilla same-team targeting, retaliation, and friendly-fire restrictions. At `0b`, vanilla rules retain priority for entities on the same team.
+- `defaultAttitude` defaults to `"neutral"` and applies when no Relationship matches.
+- `evasiveSpeedMultiplier` defaults to `1.25f` with range `[0.0f,100.0f]` and controls navigation speed during both evasive attitudes.
+
+### VanillaCompatRules
+
+VanillaCompatRules is parallel to Rules and Relationships and exclusively controls how Faction preserves species-specific behavior of vanilla Brain mobs. Rules are grouped by mob before individual compatibility fields. A missing collection, mob group, or field uses its default. Currently supported:
+
+- `piglin.greed` defaults to `1b`. It preserves ordinary piglin gold pickup, admiration, and bartering. Disabling it prevents new pickup or admiration and clears the related Brain memories.
+- `piglin.guarding` defaults to `1b`. It lets a neutral ordinary piglin retain ANGRY_AT created by vanilla events such as opening protected containers or breaking gold blocks and start a fight. Disabling it does not prevent neutral retaliation after actual damage.
+- `piglin.avoidance` defaults to `1b`. It preserves an ordinary piglin's avoidance of zombified piglins and other vanilla zombified mobs, as well as other vanilla AVOID_TARGET values. This compatibility rule takes priority over Faction hostile, so an entity that vanilla requires the piglin to avoid is not selected as a Faction combat target while the rule is enabled. At `0b`, vanilla avoidance is suppressed and Faction hostile may make the piglin actively attack a zombified piglin. PMB passively_evasive and actively_evasive behavior is unaffected.
+
+Piglin-brute validation of PMB targets is a mandatory fix for Brain state loops rather than an optional species behavior, so it is not part of the piglin group. Future mobs will receive separate groups such as `hoglin:{...}` and `warden:{...}` instead of mixing fields from different species at one level.
+
+Illager Faction combat compatibility likewise leaves vanilla species behavior unchanged outside combat. When a pillager or vindicator has a valid Faction combat target, it temporarily leaves the patrol HoldGround behavior that normally watches in place and waits for the target to approach. A Raider already pathfinding back to a raid or collecting a raid banner also enters Faction combat first. Those vanilla behaviors may start again under their original conditions after the target becomes invalid. Because an evoker has no vanilla combat Goal that approaches its enemy, it approaches a Faction target to within 16 blocks while not casting and then continues using vanilla summoning and fang spells; this adds no new damage method.
+
+### Relationships and attitudes
+
+Relationships are checked in list order and the last matching rule wins. Non-empty target categories use AND, while values inside each category use OR. Empty targets are rejected.
+
+- `factions` matches the target's unique FactionName; `teams` matches vanilla scoreboard team names.
+- `types` accepts entity type IDs and `#` entity-type tags; `tags` matches entity `/tag` values.
+- `reputation` accepts exact `"5"`, upper-bound `"..100"`, lower-bound `"1.."`, and closed `"1..100"` forms.
+- `reputation` and `roles` only match players and read their Players record inside the rule owner's faction. A player does not need membership to have either value.
+
+Attitudes have fixed meanings:
+
+- `hostile` proactively acquires visible targets inside FOLLOW_RANGE, retains pursuit through temporary loss of sight, and clears targets outside range.
+- `neutral` never proactively acquires a target but may retaliate after an effective attack. With `VanillaCompatRules.piglin.guarding:1b`, vanilla piglin ANGRY_AT events such as opening protected containers or breaking gold blocks are retained as species-specific reactive hostility and may also start a fight.
+- `allied` neither attacks nor retaliates. The victim's allowFriendlyFire decides whether actual damage is blocked.
+- `passively_evasive` flees after being attacked until the attacker leaves FOLLOW_RANGE.
+- `actively_evasive` flees when a visible threat enters FOLLOW_RANGE and stops after it leaves.
+
+Faction attitude overrides vanilla proactive hostility for members and manages both ordinary Mob targets and Brain ATTACK_TARGET/AVOID_TARGET memories. For Goal mobs, PMB reasserts the Faction target after vanilla targetSelector finishes and before the attack and movement goalSelector runs, preventing a shorter vanilla acquisition range from removing a distant target that remains inside FOLLOW_RANGE; this does not add a generic melee Goal. A Brain memory is read only when its MemoryModule is registered and is written only when its target changes. Faction does not unconditionally erase vanilla AVOID_TARGET memories it does not own. A dedicated piglin and piglin-brute compatibility layer makes PMB combat targets pass vanilla target-validity checks while preserving neutral piglins' vanilla ANGRY_AT-driven guarding and greed behavior. Illager patrol HoldGround, raid pathfinding, and banner collection no longer suppress higher-priority Faction combat; an evoker, which has no vanilla approach Goal, only receives the dedicated navigation needed to enter the effective range of its existing spells and gains no new attack. hostile supplies a target but never grants a generic melee skill. Both evasive attitudes retain a valid navigation path whose destination is already farther from the threat; when repathing is required, the mob's pathfinder first selects a reachable away position. A failed ground path no longer points move control directly into a wall or another unreachable coordinate, while flying and aquatic navigation can still use stable direct-away movement.
+
+### `/pmb faction` commands
+
+All management commands require game-master permission:
+
+```mcfunction
+/pmb faction create <faction>
+/pmb faction delete <faction>
+/pmb faction list
+/pmb faction info <faction>
+/pmb faction rule set allowInternalConflict <faction> <true|false|1b|0b>
+/pmb faction rule set allowFriendlyFire <faction> <true|false|1b|0b>
+/pmb faction rule set groupRevenge <faction> <true|false|1b|0b>
+/pmb faction rule set overrideTeamRules <faction> <true|false|1b|0b>
+/pmb faction rule set defaultAttitude <faction> <attitude>
+/pmb faction rule set evasiveSpeedMultiplier <faction> <float>
+/pmb faction compat set piglin greed <faction> <true|false|1b|0b>
+/pmb faction compat set piglin guarding <faction> <true|false|1b|0b>
+/pmb faction compat set piglin avoidance <faction> <true|false|1b|0b>
+/pmb faction relationship add <faction> <attitude> <target_snbt>
+/pmb faction relationship insert <faction> <index> <attitude> <target_snbt>
+/pmb faction relationship replace <faction> <index> <attitude> <target_snbt>
+/pmb faction relationship remove <faction> <index>
+/pmb faction relationship move <faction> <from> <to>
+/pmb faction relationship list <faction>
+/pmb faction member set <faction> <entities>
+/pmb faction member clear <entities>
+/pmb faction member get <entity>
+/pmb faction reputation set <faction> <players> <value>
+/pmb faction reputation add <faction> <players> <value>
+/pmb faction reputation get <faction> <players>
+/pmb faction role add <faction> <players> <role>
+/pmb faction role remove <faction> <players> <role>
+/pmb faction role clear <faction> <players>
+/pmb faction role list <faction> <players>
+```
+
+Relationship targets use an SNBT compound:
+
+```mcfunction
+/pmb faction create EmpireGuard
+/pmb faction create Raiders
+/pmb faction rule set groupRevenge EmpireGuard 1b
+/pmb faction compat set piglin guarding EmpireGuard 1b
+/pmb faction relationship add EmpireGuard hostile {factions:["Raiders"]}
+/pmb faction relationship add EmpireGuard allied {teams:["blue"],tags:["trusted"]}
+/pmb faction relationship add EmpireGuard neutral {types:["minecraft:player"],reputation:["25.."],roles:["visitor"]}
+/pmb faction member set EmpireGuard @e[type=minecraft:vindicator,distance=..16]
+/pmb faction reputation set EmpireGuard @a 30
+/pmb faction role add EmpireGuard @a[tag=visitor] visitor
+```
+
+Member assignment requires an existing faction and a selection containing only LivingEntity instances. Relationship writes validate attitudes, factions, teams, entity types, type tags, reputation ranges, and list indices. Bulk assignment changes only the currently selected entities and never stores or continuously maintains a FactionMembers list.
+
 ## Complete data structure
 
 ```text
@@ -80,8 +239,12 @@ AI decisions, damage, and PmbAi configuration remain server-authoritative. Shiel
                     arcChargeTicks: <int>,
                     arcAngle: <float>,
                     arcMaxPower: <float>
-                }
-        }
+				}
+		},
+	PmbFaction:
+		{
+			FactionName: <string>
+		}
 }
 ```
 
@@ -90,6 +253,8 @@ AI decisions, damage, and PmbAi configuration remain server-authoritative. Shiel
 PmbAi is the root data tag of this mod. It must be written inside a mob's NBT at the same level as other root tags such as Health, Motion, and equipment.
 
 PmbAi is a compound tag. It can contain multiple manually added AI skills, each represented by another compound tag containing its parameters.
+
+PmbAi runs only while the mob is alive. As soon as health reaches zero and the death animation begins, new AI checks and melee execution stop, and any unreleased bow charge, shield use, wind-charge bounce tracking, or mace execution state is cancelled. A dying mob cannot continue attacking, throwing, or shooting during the animation. This gate affects only AI and skill state: it does not clear death-knockback velocity, disable gravity, or replace the vanilla death process.
 
 By default, mobs do not spawn with the PmbAi root tag.
 This means that naturally spawned mobs have no AI behaviour changes caused by this mod.
@@ -121,7 +286,7 @@ Conditions for wind-charge use:
 
 1. The entity is a mob and holds a vanilla wind charge in either hand.
 2. enable is true.
-3. The mob has a living hostile target.
+3. The mob has a living hostile target, or it is currently fleeing through Faction passively_evasive/actively_evasive with a valid threat target.
 4. The mob does not have NoAI enabled and is not in shield-break vulnerability.
 5. The distance, cooldown, and chance checks for the corresponding mode succeed.
 
@@ -129,13 +294,15 @@ Bounce mode takes priority when both modes can be checked. When the mob is on th
 
 When a visible target is within throwRange, throw mode checks throwChance every throwCooldownTicks game ticks. On success, the mob swings the hand holding the wind charge and throws at a lead point calculated from the target's position and velocity. throwAccuracy controls vanilla projectile spread; 1.0 means no random spread.
 
+During Faction evasion, wind-charge AI uses the current Faction avoid target as its wind-charge target without restoring it as an attack target. On release, throw mode briefly turns the view, head, and body toward the pursuing threat while leaving escape navigation intact, then resumes fleeing. Bounce mode still uses bounceRange, bounceChance, and bounceCooldownTicks for its downward launch, but airborne steering and body facing point away from the threat. Both modes continue to obey all existing range, chance, cooldown, accuracy, and doConsume settings; evasion never bypasses those checks.
+
 doConsume controls consumption for both throw and bounce mode. By default, the held wind charge only acts as the skill's required equipment and is not consumed. When enabled, every successful throw or bounce consumes one wind charge from the hand that actually performed the action.
 
-The downward bounce uses the vanilla living-entity impulse fall-protection context. Returning to the height where the wind-charge impulse occurred does not deal fall damage from that launch. If the mob lands below the launch point, only the additional drop below that height can still deal normal fall damage.
+The downward bounce uses the vanilla living-entity impulse fall-protection context. Returning to the height where the wind-charge impulse occurred does not deal fall damage from that launch. If the mob lands below the launch point, only the additional drop below that height can still deal normal fall damage. Once the mob has actually left the ground after this bounce and lands again, the server plays the vanilla player's no-damage landing sound once. Never leaving the ground, dying, or using throw mode alone does not trigger it.
 
-After being launched by its own wind charge, the mob remembers that target for up to 60 game ticks. If vanilla airborne pathfinding temporarily clears the target, the mod restores it and applies a small, limited targetward acceleration controlled by inAirTrackStrength. This preserves gravity, wind-charge launch velocity, and existing horizontal inertia while gradually advancing toward the target instead of replacing movement with conspicuous tracking velocity. A value of 0.0 adds no horizontal tracking acceleration.
+After being launched by its own wind charge, the mob remembers that target for up to 60 game ticks. A normal combat bounce restores an attack target temporarily cleared by vanilla airborne pathfinding and applies small, limited targetward acceleration controlled by inAirTrackStrength. A Faction evasive bounce never writes an attack target and instead applies the same limited acceleration away from the threat. Both preserve gravity, wind-charge launch velocity, and existing horizontal inertia rather than replacing movement with conspicuous tracking velocity. A value of 0.0 adds no horizontal steering acceleration.
 
-After the initial downward bounce pose ends, the mob continuously aligns its view, head, and body with the target while airborne. If it starts a melee attack before that pose ends, the downward pose ends immediately and the mob faces the entity it is actually attacking, preventing hits while visibly facing away. Facing correction is independent of inAirTrackStrength. The tracking state clears when the mob lands, the target becomes invalid, or the time expires.
+After the initial downward bounce pose ends, a combat bounce continuously aligns the mob's view, head, and body with the target, while an evasive bounce faces along the direction away from the threat. If a combat-bouncing mob starts a melee attack before the downward pose ends, that pose ends immediately and it faces the entity it is actually attacking, preventing hits while visibly facing away. Facing correction is independent of inAirTrackStrength. The tracking state clears when the mob lands, the target becomes invalid, or the time expires. Consuming the final wind charge with doConsume does not prematurely cancel airborne steering that has already begun.
 
 <details>
 <summary>parameters structure</summary>

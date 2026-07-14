@@ -48,6 +48,10 @@ public abstract class PmbMobMaceMixin extends LivingEntity {
 
 		Mob mob = (Mob) (Object) this;
 		PmbMaceAiData maceAi = ((PmbAiHolder) this).pmb$getAiData().mace();
+		if (!isAlive()) {
+			pmb$performingMaceSmash = false;
+			return;
+		}
 		maceAi.tickCooldown();
 		PmbShieldAiData shieldAi = ((PmbAiHolder) this).pmb$getAiData().shield();
 		if (!maceAi.isEnabled() || mob.isNoAi() || shieldAi.isVulnerable()

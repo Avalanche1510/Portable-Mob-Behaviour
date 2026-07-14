@@ -60,6 +60,10 @@ public abstract class PmbMobBowMixin extends LivingEntity {
 
 		Mob mob = (Mob) (Object) this;
 		PmbBowAiData bowAi = ((PmbAiHolder) this).pmb$getAiData().bow();
+		if (!isAlive()) {
+			pmb$cancelBowCharge();
+			return;
+		}
 		bowAi.tickCooldowns();
 		if (pmb$bowChargeMode != PMB_BOW_NONE) {
 			pmb$tickBowCharge(serverLevel, mob, bowAi);
