@@ -118,6 +118,8 @@ Attitudes have fixed meanings:
 - `passively_evasive` flees after being attacked until the attacker leaves FOLLOW_RANGE.
 - `actively_evasive` flees when a visible threat enters FOLLOW_RANGE and stops after it leaves.
 
+Faction scanning, retaliation, existing-target validation, and piglin-specific Brain target resolution all exclude dead entities and players in creative or spectator mode. Even if such a player attacks a member, it is not written as a Faction combat or avoid target. The vanilla hurt-retaliation entry points of piglins, piglin brutes, and hoglins also stop for non-survival attackers, preventing the repeated weapon-raise, weapon-lower, and roar loop caused by vanilla Brain and Faction target contention.
+
 Faction attitude overrides vanilla proactive hostility for members and manages both ordinary Mob targets and Brain ATTACK_TARGET/AVOID_TARGET memories. For Goal mobs, PMB reasserts the Faction target after vanilla targetSelector finishes and before the attack and movement goalSelector runs, preventing a shorter vanilla acquisition range from removing a distant target that remains inside FOLLOW_RANGE; this does not add a generic melee Goal. A Brain memory is read only when its MemoryModule is registered and is written only when its target changes. Faction does not unconditionally erase vanilla AVOID_TARGET memories it does not own. A dedicated piglin and piglin-brute compatibility layer makes PMB combat targets pass vanilla target-validity checks while preserving neutral piglins' vanilla ANGRY_AT-driven guarding and greed behavior. Illager patrol HoldGround, raid pathfinding, and banner collection no longer suppress higher-priority Faction combat; an evoker, which has no vanilla approach Goal, only receives the dedicated navigation needed to enter the effective range of its existing spells and gains no new attack. hostile supplies a target but never grants a generic melee skill. Both evasive attitudes retain a valid navigation path whose destination is already farther from the threat; when repathing is required, the mob's pathfinder first selects a reachable away position. A failed ground path no longer points move control directly into a wall or another unreachable coordinate, while flying and aquatic navigation can still use stable direct-away movement.
 
 ### `/pmb faction` commands
@@ -208,6 +210,18 @@ Member assignment requires an existing faction and a selection containing only L
                     bounceRange: <float>,
                     bounceChance: <float>,
                     bounceCooldownTicks: <int>
+                },
+            ender_pearl:
+                {
+                    enable: <bool>,
+                    minThrowRange: <float>,
+                    maxThrowRange: <float>,
+                    throwChance: <float>,
+                    throwCooldownTicks: <int>,
+                    throwAccuracy: <float>,
+                    maxThrowPower: <float>,
+                    throwAngle: <float>,
+                    doConsume: <bool>
                 },
             mace:
                 {
@@ -412,6 +426,138 @@ summon zombie ~ ~ ~ {PmbAi:{wind_charge:{enable:1b, doConsume:1b, inAirTrackStre
 
 Disable wind-charge AI on the nearest zombie without removing its other configured parameters.
 data merge entity @e[type=zombie,sort=nearest,limit=1] {PmbAi:{wind_charge:{enable:0b}}}
+```
+
+</details>
+
+### ender pearl
+
+Ender-pearl AI lets a mob holding a vanilla ender pearl in either hand calculate and throw a trajectory automatically. Ordinary combat uses the current attack target as the destination. During Faction passively_evasive or actively_evasive flight, it instead uses an escape position away from the current avoid threat.
+
+Conditions for a throw check:
+
+1. The entity is a mob and holds a vanilla ender pearl in either hand.
+2. enable is true and throwChance is greater than 0.0.
+3. The mob has a living attack target, or it is currently executing Faction evasion with a valid avoid threat.
+4. An ordinary attack target is visible and between minThrowRange and maxThrowRange; a Faction avoid threat only needs to be visible and no farther than maxThrowRange.
+5. The skill is not in the throw-check cooldown defined by throwCooldownTicks.
+6. The mob does not have NoAI enabled and is not in shield-break vulnerability.
+
+Every eligible check immediately enters throwCooldownTicks cooldown before rolling throwChance, so a failed chance roll also starts cooldown. A value of 0 game ticks permits another check on the next game tick. On success, the mob faces the actual launch trajectory, swings the hand holding the pearl, and plays the vanilla ender-pearl throw sound.
+
+maxThrowPower is not an absolute initial speed. It limits solved speed as a multiplier of the vanilla stationary-player ender-pearl launch speed of 1.5. The default 1.0 allows speeds up to 1.5, while 2.0 allows up to 3.0. throwAngle fixes the launch angle above horizontal and defaults to 30 degrees. The solver discretely simulates vanilla ender-pearl drag of 0.99 per tick and gravity of 0.03, binary-searches the required speed at that fixed angle, and iteratively leads the target from its latest position and velocity. If the required speed exceeds 1.5 times maxThrowPower or no complete solution exists at that angle, the pearl is still launched at the speed limit and configured angle and may miss because of insufficient physical reach.
+
+minThrowRange and maxThrowRange define the ordinary combat throw-check interval, preventing repeated pearl use after a target gets too close. They do not guarantee that the configured maxThrowPower and throwAngle physically cover the whole interval. Faction evasion ignores minThrowRange: a check is allowed whenever the avoid threat is visible and no farther than maxThrowRange. The pearl is neither thrown toward that threat nor used to write an attack target. Its destination prefers the current reachable escape-navigation target that is farther from the threat and is clamped to maxThrowRange; without a valid navigation target, it uses a stable directly-away position. Pearl impact continues through vanilla ender-pearl teleportation, collision, and damage handling.
+
+throwAccuracy 1.0 adds no random spread; lower values add progressively more spread. With doConsume 0b, the held pearl only acts as required equipment and is not consumed. With doConsume 1b, one pearl is consumed from the hand that actually swings after a successful release, and the final pearl explicitly synchronizes an empty hand. Range and chance checks never consume an item early.
+
+<details>
+<summary>parameters structure</summary>
+
+```text
+ender_pearl:
+    {
+        enable: <bool>,
+        minThrowRange: <float>,
+        maxThrowRange: <float>,
+        throwChance: <float>,
+        throwCooldownTicks: <int>,
+        throwAccuracy: <float>,
+        maxThrowPower: <float>,
+        throwAngle: <float>,
+        doConsume: <bool>
+    }
+```
+
+</details>
+
+<details>
+<summary>details of parameters</summary>
+
+```text
+enable
+Meaning: Whether this AI skill is enabled
+Type: bool
+Range: 0b, 1b
+Default: 0b
+
+minThrowRange
+Meaning: Minimum ordinary-combat target distance that can start an ender-pearl throw check
+Type: float
+Range: [0.0f, 256.0f]
+Default: 4.0f
+Note: Faction evasive checks ignore this lower bound
+
+maxThrowRange
+Meaning: Maximum target or avoid-threat distance that can start a pearl throw check; a Faction escape destination is also limited to this distance
+Type: float
+Range: [minThrowRange, 256.0f]
+Default: 16.0f
+Note: Controls AI activation only and does not guarantee sufficient physical range at the current speed; values below minThrowRange are clamped to minThrowRange
+
+throwChance
+Meaning: Chance for each throw check to succeed and release a pearl
+Type: float
+Range: [0.0f, 1.0f]
+Default: 0.35f
+Note: 0.0 fully disables throw checks
+
+throwCooldownTicks
+Meaning: Game ticks of cooldown after every throw check, whether the chance succeeds or fails
+Type: integer
+Range: [0, 72000]
+Default: 40
+Note: 0 allows another check on the next game tick
+
+throwAccuracy
+Meaning: Ender-pearl throw accuracy; higher values produce less random spread
+Type: float
+Range: [0.0f, 1.0f]
+Default: 0.9f
+Note: 1.0 adds no random spread
+
+maxThrowPower
+Meaning: Ender-pearl trajectory-solver speed limit as a multiplier of the vanilla stationary-player speed of 1.5
+Type: float
+Range: [0.1f, 10.0f]
+Default: 1.0f
+Note: 1.0 means maximum speed 1.5; the solver may use a lower speed up to this limit
+
+throwAngle
+Meaning: Fixed ender-pearl launch angle above horizontal
+Type: float
+Range: [1.0f, 89.0f]
+Default: 30.0f
+Note: The solver keeps this angle fixed and varies initial speed
+
+doConsume
+Meaning: Whether a successful throw consumes one ender pearl
+Type: bool
+Range: 0b, 1b
+Default: 0b
+Note: Consumes from the hand that actually swings while holding the pearl
+```
+
+Values outside these ranges are automatically clamped when the entity data is read.
+One second is normally equal to 20 game ticks.
+
+</details>
+
+<details>
+<summary>command examples</summary>
+
+```text
+Summon a zombie holding an ender pearl in its off hand and using all default ender-pearl parameters.
+summon zombie ~ ~ ~ {PmbAi:{ender_pearl:{enable:1b}}, equipment:{mainhand:{id:iron_sword}, offhand:{id:ender_pearl}}}
+
+Summon a zombie that throws accurately from 6 through 32 blocks at a 30-degree angle, allows up to twice vanilla speed, and consumes pearls.
+summon zombie ~ ~ ~ {PmbAi:{ender_pearl:{enable:1b, minThrowRange:6.0f, maxThrowRange:32.0f, throwChance:1.0f, throwCooldownTicks:60, throwAccuracy:1.0f, maxThrowPower:2.0f, throwAngle:30.0f, doConsume:1b}}, equipment:{mainhand:{id:ender_pearl,count:16}}}
+
+Summon a vindicator whose pearl skill can be driven by a Faction evasive relationship toward an escape position.
+summon vindicator ~ ~ ~ {PmbAi:{ender_pearl:{enable:1b, minThrowRange:8.0f, maxThrowRange:24.0f, throwChance:1.0f}}, equipment:{offhand:{id:ender_pearl}}}
+
+Disable ender-pearl AI on the nearest zombie without removing its other configured parameters.
+data merge entity @e[type=zombie,sort=nearest,limit=1] {PmbAi:{ender_pearl:{enable:0b}}}
 ```
 
 </details>

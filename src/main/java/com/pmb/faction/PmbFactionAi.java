@@ -16,6 +16,7 @@ import net.minecraft.world.entity.monster.piglin.AbstractPiglin;
 import net.minecraft.world.entity.monster.piglin.Piglin;
 import net.minecraft.world.entity.monster.piglin.PiglinAi;
 import net.minecraft.world.entity.monster.piglin.PiglinBrute;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.Comparator;
@@ -68,6 +69,9 @@ public final class PmbFactionAi {
 	}
 
 	public static boolean mayAttack(Mob mob, LivingEntity target) {
+		if (!isCombatTargetable(target)) {
+			return false;
+		}
 		if (preservesPiglinAvoidanceAgainst(mob, target)) {
 			return false;
 		}
@@ -167,24 +171,18 @@ public final class PmbFactionAi {
 			return;
 		}
 
-		PmbFactionAttitude attitude = PmbFactionResolver.attitude(
-				PmbFactionSavedData.get(level.getServer()), piglin, vanillaAvoid);
-		boolean conflictsWithFactionCombat = state.pmb$getFactionCombatTarget() == vanillaAvoid
-				|| attitude == PmbFactionAttitude.HOSTILE;
-		if (conflictsWithFactionCombat || !definition.vanillaCompatRules().piglin().avoidance()) {
-			brain.eraseMemory(MemoryModuleType.AVOID_TARGET);
-			brain.eraseMemory(MemoryModuleType.WALK_TARGET);
-		}
+		brain.eraseMemory(MemoryModuleType.AVOID_TARGET);
+		brain.eraseMemory(MemoryModuleType.WALK_TARGET);
 	}
 
 	private static LivingEntity resolvePiglinAttackTarget(AbstractPiglin piglin, LivingEntity vanillaTarget) {
 		PmbFactionMobState state = (PmbFactionMobState) piglin;
 		LivingEntity factionTarget = state.pmb$getFactionCombatTarget();
-		if (factionTarget != null && factionTarget.isAlive() && factionTarget.level() == piglin.level()
+		if (isCombatTargetable(factionTarget) && factionTarget.level() == piglin.level()
 				&& !preservesPiglinAvoidanceAgainst(piglin, factionTarget)) {
 			return factionTarget;
 		}
-		if (vanillaTarget == null || !(piglin.level() instanceof ServerLevel level)) {
+		if (!isCombatTargetable(vanillaTarget) || !(piglin.level() instanceof ServerLevel level)) {
 			return null;
 		}
 		PmbFactionSavedData data = PmbFactionSavedData.get(level.getServer());
@@ -201,7 +199,7 @@ public final class PmbFactionAi {
 
 	public static void authorizeRevenge(Mob mob, LivingEntity attacker) {
 		PmbFactionMobState state = (PmbFactionMobState) mob;
-		if (preservesPiglinAvoidanceAgainst(mob, attacker)) {
+		if (!isCombatTargetable(attacker) || preservesPiglinAvoidanceAgainst(mob, attacker)) {
 			state.pmb$setFactionCombatTarget(null);
 			state.pmb$setFactionGroupRevenge(false);
 			return;
@@ -384,6 +382,9 @@ public final class PmbFactionAi {
 
 	private static boolean mayRetainVanillaTarget(Mob mob, LivingEntity target, PmbFactionMobState state,
 			PmbFactionSavedData data) {
+		if (!isCombatTargetable(target)) {
+			return false;
+		}
 		PmbFactionAttitude attitude = PmbFactionResolver.attitude(data, mob, target);
 		if (attitude == null || attitude == PmbFactionAttitude.HOSTILE) {
 			return true;
@@ -395,7 +396,7 @@ public final class PmbFactionAi {
 				|| state.pmb$isFactionGroupRevenge()
 				|| mob instanceof Piglin piglin && piglinCompatRules(piglin).guarding()
 						&& hasPiglinAngerTarget(piglin, target)
-				|| mob instanceof PiglinBrute piglin && hasPiglinAngerTarget(piglin, target);
+				|| mob instanceof PiglinBrute brute && hasPiglinAngerTarget(brute, target);
 	}
 
 	private static boolean hasPiglinAngerTarget(AbstractPiglin piglin, LivingEntity target) {
@@ -478,8 +479,13 @@ public final class PmbFactionAi {
 	}
 
 	private static boolean isInRange(Mob source, LivingEntity target, double range) {
-		return target != null && target.isAlive() && target.level() == source.level()
+		return isCombatTargetable(target) && target.level() == source.level()
 				&& source.distanceToSqr(target) <= range * range;
+	}
+
+	public static boolean isCombatTargetable(LivingEntity target) {
+		return target != null && target.isAlive() && (!(target instanceof Player player)
+				|| !player.isCreative() && !player.isSpectator());
 	}
 
 	private static void clearRuntimeState(Mob mob, PmbFactionMobState state) {

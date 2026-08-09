@@ -12,6 +12,7 @@ public class PmbAiData {
 	private final PmbWindChargeAiData windCharge = new PmbWindChargeAiData();
 	private final PmbMaceAiData mace = new PmbMaceAiData();
 	private final PmbBowAiData bow = new PmbBowAiData();
+	private final PmbEnderPearlAiData enderPearl = new PmbEnderPearlAiData();
 
 	public PmbShieldAiData shield() {
 		return shield;
@@ -29,8 +30,13 @@ public class PmbAiData {
 		return bow;
 	}
 
+	public PmbEnderPearlAiData enderPearl() {
+		return enderPearl;
+	}
+
 	public boolean isConfigured() {
-		return shield.isConfigured() || windCharge.isConfigured() || mace.isConfigured() || bow.isConfigured();
+		return shield.isConfigured() || windCharge.isConfigured() || mace.isConfigured() || bow.isConfigured()
+				|| enderPearl.isConfigured();
 	}
 
 	public void read(ValueInput input) {
@@ -44,6 +50,7 @@ public class PmbAiData {
 		windCharge.read(aiInput.get());
 		mace.read(aiInput.get());
 		bow.read(aiInput.get());
+		enderPearl.read(aiInput.get());
 	}
 
 	public void write(ValueOutput output) {
@@ -64,6 +71,9 @@ public class PmbAiData {
 		if (bow.isConfigured()) {
 			bow.write(ai.child(PmbBowAiData.TAG));
 		}
+		if (enderPearl.isConfigured()) {
+			enderPearl.write(ai.child(PmbEnderPearlAiData.TAG));
+		}
 	}
 
 	private void clear() {
@@ -71,5 +81,6 @@ public class PmbAiData {
 		windCharge.clear();
 		mace.clear();
 		bow.clear();
+		enderPearl.clear();
 	}
 }

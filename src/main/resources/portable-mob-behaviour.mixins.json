@@ -10,6 +10,7 @@
 		"PmbMobShieldMixin",
 		"PmbMobDeathAiMixin",
 		"PmbMobWindChargeMixin",
+		"PmbMobEnderPearlMixin",
 		"PmbMobMaceMixin",
 		"PmbMobBowMixin",
 		"PmbRangedBowAttackGoalMixin",
@@ -25,7 +26,8 @@
 		"PmbRaiderBannerFactionMixin",
 		"PmbEvokerFactionMixin",
 		"PmbPiglinAiFactionMixin",
-		"PmbPiglinBruteAiFactionMixin"
+		"PmbPiglinBruteAiFactionMixin",
+		"PmbHoglinAiFactionMixin"
 	],
 	"injectors": {
 		"defaultRequire": 1

@@ -11,6 +11,20 @@ Year.Month.Day-No.
 
 ## Record
 
+### 26.8.9-1
+Fixed Faction mobs treating creative- or spectator-mode players as targets. Non-survival players are now excluded consistently from scanning, damage retaliation, existing-target validation, group-revenge authorization, and piglin/piglin-brute-specific Brain target resolution; piglin, piglin-brute, and hoglin vanilla hurt-retaliation entry points also stop. Attacking a piglin, hoglin, or any other Faction member as such a player no longer writes a combat or avoid target, preventing the repeated weapon-raise and roar loop caused by Brain and Faction contention.
+
+Tidied piglin compatibility logic: when VanillaCompatRules disables vanilla piglin avoidance, vanilla avoid and walk memories are now cleared directly instead of through a condition already made unconditional by the preceding branch. Piglin brutes also use a distinct pattern-variable name, removing the IDE's duplicate `piglin` diagnostic without changing behavior.
+
+### 26.7.15-1
+Added the independent ender_pearl AI skill. A mob holding a vanilla ender pearl in either hand can perform throw checks using minThrowRange, maxThrowRange, throwChance, and throwCooldownTicks, apply random spread through throwAccuracy, and use doConsume to decide whether one pearl is consumed from the hand that actually throws. Ordinary combat checks only inside the default 4-to-16-block interval, preventing repeated pearl use after a target closes in. A chance of 0.0 fully disables checks, and every eligible check enters cooldown whether it succeeds or fails. The old throwRange input is accepted only as a read-compatibility value for maxThrowRange; saves use the new fields.
+
+Refactored throwPower into maxThrowPower and added throwAngle with a default of 30.0f and range of [1.0f,89.0f]. maxThrowPower defaults to 1.0f with range [0.1f,10.0f] and limits solved speed as a multiplier of the vanilla stationary-player launch speed of 1.5. The trajectory solver discretely simulates ender-pearl drag of 0.99 and gravity of 0.03, binary-searches required speed at the fixed throwAngle, and iteratively leads moving targets. It uses the speed limit when the required speed exceeds it or no complete solution exists at that angle. Old throwPower is accepted only as a read-compatibility value for maxThrowPower; saves use the new field.
+
+Added compatibility with Faction passively_evasive and actively_evasive attitudes. Evasive checks ignore minThrowRange and may run whenever the current avoid threat is visible and no farther than maxThrowRange. The pearl is neither thrown toward that threat nor used to write an attack target. Its destination prefers the current reachable escape-navigation target that is farther from the threat and is clamped to maxThrowRange; without a valid path target, it uses a stable directly-away position. Combat and evasive throws both face the actual launch trajectory, swing the hand holding the pearl, and play the vanilla ender-pearl throw sound.
+
+Added ender_pearl to PmbAi NBT reading, saving, configuration detection, defaults, and clamping, with bilingual README text, complete structures, parameter documentation, and command examples.
+
 ### 26.7.13-2
 Added the dynamic Faction module independently of PmbAi skills. Every LivingEntity and player can store one FactionName in the separate PmbFaction root tag. Faction definitions, relationships, rules, player reputation, and player roles are stored in overworld server SavedData, read by every dimension in real time, and are not fully synchronized to clients.
 

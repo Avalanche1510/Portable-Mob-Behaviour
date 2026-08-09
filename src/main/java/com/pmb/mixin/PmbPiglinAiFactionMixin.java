@@ -16,6 +16,14 @@ import java.util.Optional;
 
 @Mixin(PiglinAi.class)
 public class PmbPiglinAiFactionMixin {
+	@Inject(method = "wasHurtBy", at = @At("HEAD"), cancellable = true)
+	private static void pmb$ignoreNonSurvivalRetaliation(ServerLevel level, Piglin piglin, LivingEntity attacker,
+			CallbackInfo info) {
+		if (!PmbFactionAi.isCombatTargetable(attacker)) {
+			info.cancel();
+		}
+	}
+
 	@Inject(method = "isNearZombified", at = @At("HEAD"), cancellable = true)
 	private static void pmb$allowFactionCombatWithZombified(Piglin piglin,
 			CallbackInfoReturnable<Boolean> info) {

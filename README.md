@@ -18,6 +18,8 @@
 
 启用wind_charge技能并持有风弹的Faction逃跑生物可以回头向威胁投掷风弹或用脚下弹射加速撤离；弹射后正常落地会播放原版玩家无伤落地音。
 
+ender_pearl技能允许持有末影珍珠的生物在自定义最小至最大距离区间内按固定仰角自动求解所需初速度；普通战斗会预判移动目标，Faction逃跑忽略最小距离并将珍珠投向远离威胁的逃生位置。
+
 PmbFaction是服务端持久实体NBT，可直接写入summon数据，例如`/summon minecraft:vindicator ~ ~ ~ {PmbFaction:{FactionName:"灾厄庭"}}`；派系必须预先存在。
 
 ## 资源指南：
@@ -70,6 +72,8 @@ This mod is required on both client and server. Both sides verify compatibility 
 In addition to portable AI skills, the mod provides a server-side dynamic Faction module for live hostile, neutral, allied, evasive, group-revenge, and friendly-fire relationships between entities and players. Separate per-mob VanillaCompatRules control how vanilla Brain species behavior is preserved.
 
 A Faction-fleeing mob with the wind_charge skill enabled and a held wind charge can look back to throw at its threat or self-bounce to accelerate its escape; a normal post-bounce landing plays the vanilla player's no-damage landing sound.
+
+The ender_pearl skill lets a mob holding an ender pearl solve the required initial speed at a fixed launch angle inside a configurable minimum-to-maximum distance interval. Combat throws lead moving targets, while Faction evasion ignores the minimum and throws toward an escape position away from the threat.
 
 PmbFaction is persistent server-side entity NBT and can be supplied directly to summon, for example `/summon minecraft:vindicator ~ ~ ~ {PmbFaction:{FactionName:"IllagerCourt"}}`; the faction must already exist.
 
