@@ -17,9 +17,12 @@ public class PmbEntityFactionTeamMixin {
 	@Inject(method = "isAlliedTo(Lnet/minecraft/world/entity/Entity;)Z", at = @At("HEAD"), cancellable = true)
 	private void pmb$overrideTeamAlliance(Entity other, CallbackInfoReturnable<Boolean> info) {
 		Entity self = (Entity) (Object) this;
+		if (self == other) {
+			info.setReturnValue(true);
+			return;
+		}
 		if (!(self instanceof LivingEntity source) || !(other instanceof LivingEntity target)
-				|| !(self.level() instanceof ServerLevel level) || source.getTeam() == null
-				|| source.getTeam() != target.getTeam()) {
+				|| !(self.level() instanceof ServerLevel level)) {
 			return;
 		}
 		PmbFactionSavedData data = PmbFactionSavedData.get(level.getServer());

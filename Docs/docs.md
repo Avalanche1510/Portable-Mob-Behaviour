@@ -998,8 +998,8 @@ vulnerDamageMultiplier
 Meaning: Damage multiplier applied while the mob is in shield-break vulnerability
 Type: float
 Range: [1.0f, 100.0f]
-Default: 1.5f
-Note: 1.5 means the mob receives double damage during shield-break vulnerability
+Default: 2.0f
+Note: 2.0 means the mob receives double damage during shield-break vulnerability; entities that explicitly saved another value are not migrated to the new default
 
 disableKBMultiplier
 Meaning: Multiplier for the extra knockback applied by the final hit that truly breaks the shield

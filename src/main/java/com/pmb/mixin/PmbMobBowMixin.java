@@ -147,9 +147,8 @@ public abstract class PmbMobBowMixin extends LivingEntity {
 
 	@Unique
 	private int pmb$movementMode(PmbBowAiData bowAi, double distance) {
-		boolean line = bowAi.lineShootChance() > 0.0F && distance <= bowAi.lineRange();
-		boolean arc = bowAi.arcShootChance() > 0.0F && distance <= bowAi.arcMaxRange()
-				&& (distance >= bowAi.arcMinRange() || distance < bowAi.arcSafeDistance());
+		boolean line = bowAi.controlsLineMovement(distance);
+		boolean arc = bowAi.controlsArcMovement(distance);
 		return pmb$selectBowMode(bowAi, line, arc);
 	}
 

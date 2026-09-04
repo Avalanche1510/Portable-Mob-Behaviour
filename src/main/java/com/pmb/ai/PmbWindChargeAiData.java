@@ -2,9 +2,14 @@ package com.pmb.ai;
 
 import java.util.Optional;
 
-import com.mojang.serialization.Codec;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
+
+import static com.pmb.ai.PmbAiNbtReader.clamp;
+import static com.pmb.ai.PmbAiNbtReader.getBooleanOr;
+import static com.pmb.ai.PmbAiNbtReader.getFloatOr;
+import static com.pmb.ai.PmbAiNbtReader.getIntOr;
+import static com.pmb.ai.PmbAiNbtReader.hasAnyNumericField;
 
 public class PmbWindChargeAiData {
 	public static final String TAG = "wind_charge";
@@ -105,7 +110,7 @@ public class PmbWindChargeAiData {
 
 	public void read(ValueInput aiInput) {
 		Optional<ValueInput> input = aiInput.child(TAG);
-		if (input.isEmpty() || !hasAnyField(input.get(), "enable", "throwRange", "throwChance",
+		if (input.isEmpty() || !hasAnyNumericField(input.get(), "enable", "throwRange", "throwChance",
 				"throwCooldownTicks", "throwAccuracy", "bounceRange", "bounceChance", "bounceCooldownTicks",
 				"doConsume", "inAirTrackStrength")) {
 			clear();
@@ -160,52 +165,4 @@ public class PmbWindChargeAiData {
 		bounceCooldown = 0;
 	}
 
-	private static boolean hasAnyField(ValueInput input, String... keys) {
-		for (String key : keys) {
-			if (input.read(key, Codec.BOOL).isPresent() || input.read(key, Codec.BYTE).isPresent()
-					|| input.getInt(key).isPresent() || input.read(key, Codec.FLOAT).isPresent()
-					|| input.read(key, Codec.DOUBLE).isPresent()) {
-				return true;
-			}
-		}
-		return false;
-	}
-
-	private static boolean getBooleanOr(ValueInput input, String key, boolean defaultValue) {
-		Optional<Boolean> booleanValue = input.read(key, Codec.BOOL);
-		if (booleanValue.isPresent()) {
-			return booleanValue.get();
-		}
-		Optional<Byte> byteValue = input.read(key, Codec.BYTE);
-		if (byteValue.isPresent()) {
-			return byteValue.get() != 0;
-		}
-		Optional<Integer> intValue = input.getInt(key);
-		return intValue.isPresent() ? intValue.get() != 0 : input.getBooleanOr(key, defaultValue);
-	}
-
-	private static int getIntOr(ValueInput input, String key, int defaultValue) {
-		return input.getInt(key).orElse(defaultValue);
-	}
-
-	private static float getFloatOr(ValueInput input, String key, float defaultValue) {
-		Optional<Float> floatValue = input.read(key, Codec.FLOAT);
-		if (floatValue.isPresent()) {
-			return floatValue.get();
-		}
-		Optional<Double> doubleValue = input.read(key, Codec.DOUBLE);
-		if (doubleValue.isPresent()) {
-			return doubleValue.get().floatValue();
-		}
-		Optional<Integer> intValue = input.getInt(key);
-		return intValue.isPresent() ? intValue.get() : defaultValue;
-	}
-
-	private static int clamp(int value, int min, int max) {
-		return Math.max(min, Math.min(max, value));
-	}
-
-	private static float clamp(float value, float min, float max) {
-		return Math.max(min, Math.min(max, value));
-	}
 }

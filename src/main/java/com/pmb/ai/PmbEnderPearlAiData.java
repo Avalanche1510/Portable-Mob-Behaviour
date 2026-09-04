@@ -2,9 +2,14 @@ package com.pmb.ai;
 
 import java.util.Optional;
 
-import com.mojang.serialization.Codec;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
+
+import static com.pmb.ai.PmbAiNbtReader.clamp;
+import static com.pmb.ai.PmbAiNbtReader.getBooleanOr;
+import static com.pmb.ai.PmbAiNbtReader.getFloatOr;
+import static com.pmb.ai.PmbAiNbtReader.getIntOr;
+import static com.pmb.ai.PmbAiNbtReader.hasAnyNumericField;
 
 public class PmbEnderPearlAiData {
 	public static final String TAG = "ender_pearl";
@@ -87,7 +92,7 @@ public class PmbEnderPearlAiData {
 
 	public void read(ValueInput aiInput) {
 		Optional<ValueInput> input = aiInput.child(TAG);
-		if (input.isEmpty() || !hasAnyField(input.get(), "enable", "minThrowRange", "maxThrowRange",
+		if (input.isEmpty() || !hasAnyNumericField(input.get(), "enable", "minThrowRange", "maxThrowRange",
 				"throwRange", "throwChance",
 				"throwCooldownTicks", "throwAccuracy", "maxThrowPower", "throwPower", "throwAngle",
 				"doConsume")) {
@@ -100,15 +105,14 @@ public class PmbEnderPearlAiData {
 		enabled = getBooleanOr(pearlInput, "enable", false);
 		minThrowRange = clamp(getFloatOr(pearlInput, "minThrowRange", DEFAULT_MIN_THROW_RANGE),
 				0.0F, 256.0F);
-		float legacyOrDefaultMax = getFloatOr(pearlInput, "throwRange", DEFAULT_MAX_THROW_RANGE);
-		maxThrowRange = clamp(getFloatOr(pearlInput, "maxThrowRange", legacyOrDefaultMax),
+		maxThrowRange = clamp(getFloatOr(pearlInput, DEFAULT_MAX_THROW_RANGE, "maxThrowRange", "throwRange"),
 				minThrowRange, 256.0F);
 		throwChance = clamp(getFloatOr(pearlInput, "throwChance", DEFAULT_THROW_CHANCE), 0.0F, 1.0F);
 		throwCooldownTicks = clamp(getIntOr(pearlInput, "throwCooldownTicks", DEFAULT_THROW_COOLDOWN_TICKS),
 				0, MAX_COOLDOWN_TICKS);
 		throwAccuracy = clamp(getFloatOr(pearlInput, "throwAccuracy", DEFAULT_THROW_ACCURACY), 0.0F, 1.0F);
-		float legacyOrDefaultPower = getFloatOr(pearlInput, "throwPower", DEFAULT_MAX_THROW_POWER);
-		maxThrowPower = clamp(getFloatOr(pearlInput, "maxThrowPower", legacyOrDefaultPower), 0.1F, 10.0F);
+		maxThrowPower = clamp(getFloatOr(pearlInput, DEFAULT_MAX_THROW_POWER, "maxThrowPower", "throwPower"),
+				0.1F, 10.0F);
 		throwAngle = clamp(getFloatOr(pearlInput, "throwAngle", DEFAULT_THROW_ANGLE), 1.0F, 89.0F);
 		doConsume = getBooleanOr(pearlInput, "doConsume", DEFAULT_DO_CONSUME);
 		throwCooldown = 0;
@@ -140,52 +144,4 @@ public class PmbEnderPearlAiData {
 		throwCooldown = 0;
 	}
 
-	private static boolean hasAnyField(ValueInput input, String... keys) {
-		for (String key : keys) {
-			if (input.read(key, Codec.BOOL).isPresent() || input.read(key, Codec.BYTE).isPresent()
-					|| input.getInt(key).isPresent() || input.read(key, Codec.FLOAT).isPresent()
-					|| input.read(key, Codec.DOUBLE).isPresent()) {
-				return true;
-			}
-		}
-		return false;
-	}
-
-	private static boolean getBooleanOr(ValueInput input, String key, boolean defaultValue) {
-		Optional<Boolean> booleanValue = input.read(key, Codec.BOOL);
-		if (booleanValue.isPresent()) {
-			return booleanValue.get();
-		}
-		Optional<Byte> byteValue = input.read(key, Codec.BYTE);
-		if (byteValue.isPresent()) {
-			return byteValue.get() != 0;
-		}
-		Optional<Integer> intValue = input.getInt(key);
-		return intValue.isPresent() ? intValue.get() != 0 : input.getBooleanOr(key, defaultValue);
-	}
-
-	private static int getIntOr(ValueInput input, String key, int defaultValue) {
-		return input.getInt(key).orElse(defaultValue);
-	}
-
-	private static float getFloatOr(ValueInput input, String key, float defaultValue) {
-		Optional<Float> floatValue = input.read(key, Codec.FLOAT);
-		if (floatValue.isPresent()) {
-			return floatValue.get();
-		}
-		Optional<Double> doubleValue = input.read(key, Codec.DOUBLE);
-		if (doubleValue.isPresent()) {
-			return doubleValue.get().floatValue();
-		}
-		Optional<Integer> intValue = input.getInt(key);
-		return intValue.isPresent() ? intValue.get() : defaultValue;
-	}
-
-	private static int clamp(int value, int min, int max) {
-		return Math.max(min, Math.min(max, value));
-	}
-
-	private static float clamp(float value, float min, float max) {
-		return Math.max(min, Math.min(max, value));
-	}
 }

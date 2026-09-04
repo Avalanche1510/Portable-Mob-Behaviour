@@ -11,6 +11,17 @@ Year.Month.Day-No.
 
 ## Record
 
+### 26.9.4-1
+Fixed overrideTeamRules not fully replacing vanilla team relationships. A Faction member with this rule enabled now resolves vanilla alliance against any LivingEntity from the source faction's directional attitude instead of requiring both entities to already share a team. Player friendly-fire checks are also delegated to Faction rules whenever either participant belongs to a valid Faction with overrideTeamRules enabled, then use the victim faction's allowFriendlyFire and member/allied relationship to decide whether damage is allowed.
+
+Restored the incorrect vulnerDamageMultiplier default from 1.5f to 2.0f, matching the intended default of double incoming damage during shield-break vulnerability. Its range and damage formula are unchanged. Entities that explicitly saved 1.5f or another valid value are not migrated; only configurations omitting the field use the new default.
+
+Optimized groupRevenge responder lookup. It returns immediately for missing responsible attackers, self-damage, or when no Faction enables groupRevenge. Otherwise it queries only mobs inside a 2048-block AABB around the attacker, then applies each responder's current Faction rules, member/allied relationships, and own FOLLOW_RANGE as an exact spherical check instead of traversing every loaded entity in the dimension after each effective hit.
+
+Centralized the side-effect-free line and arc movement-control range checks in PmbBowAiData and reused them from both bow shooting movement and MoveControl suppression, preserving the existing mode priority, range, and safe-distance semantics.
+
+Added the package-private stateless PmbAiNbtReader to share NBT numeric-type tolerance, field detection, ordered alias reads, and clamping across the shield, bow, mace, wind-charge, and ender-pearl AI data classes. Shield nested/legacy-flat formats, all alias orders, percentage speed conversion, and new-before-legacy ender-pearl fields remain intact; each skill still owns its defaults, normalization, saved form, and runtime-state reset.
+
 ### 26.8.9-1
 Fixed Faction mobs treating creative- or spectator-mode players as targets. Non-survival players are now excluded consistently from scanning, damage retaliation, existing-target validation, group-revenge authorization, and piglin/piglin-brute-specific Brain target resolution; piglin, piglin-brute, and hoglin vanilla hurt-retaliation entry points also stop. Attacking a piglin, hoglin, or any other Faction member as such a player no longer writes a combat or avoid target, preventing the repeated weapon-raise and roar loop caused by Brain and Faction contention.
 

@@ -37,8 +37,7 @@ public final class PmbFactionCombat {
 	}
 
 	public static boolean overridePlayerHarm(Player attacker, Player target, boolean vanillaResult) {
-		if (!(attacker.level() instanceof ServerLevel level) || attacker.getTeam() == null
-				|| attacker.getTeam() != target.getTeam()) {
+		if (!(attacker.level() instanceof ServerLevel level)) {
 			return vanillaResult;
 		}
 		PmbFactionSavedData data = PmbFactionSavedData.get(level.getServer());
@@ -64,10 +63,11 @@ public final class PmbFactionCombat {
 			return;
 		}
 		PmbFactionSavedData data = PmbFactionSavedData.get(level.getServer());
-		for (Entity entity : level.getAllEntities()) {
-			if (!(entity instanceof Mob responder) || responder == victim || responder == attacker) {
-				continue;
-			}
+		if (data.factions().values().stream().noneMatch(definition -> definition.rules().groupRevenge())) {
+			return;
+		}
+		for (Mob responder : level.getEntitiesOfClass(Mob.class, attacker.getBoundingBox().inflate(2048.0D),
+				entity -> entity != victim && entity != attacker)) {
 			var factionId = PmbFactionResolver.factionOf(responder);
 			PmbFactionDefinition definition = factionId == null ? null : data.get(factionId);
 			if (definition == null || !definition.rules().groupRevenge()

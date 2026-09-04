@@ -2,9 +2,14 @@ package com.pmb.ai;
 
 import java.util.Optional;
 
-import com.mojang.serialization.Codec;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
+
+import static com.pmb.ai.PmbAiNbtReader.clamp;
+import static com.pmb.ai.PmbAiNbtReader.getBooleanOr;
+import static com.pmb.ai.PmbAiNbtReader.getFloatOr;
+import static com.pmb.ai.PmbAiNbtReader.getIntOr;
+import static com.pmb.ai.PmbAiNbtReader.hasAnyScalarField;
 
 public class PmbBowAiData {
 	public static final String TAG = "bow";
@@ -79,6 +84,13 @@ public class PmbBowAiData {
 	public float arcMaxPower() { return arcMaxPower; }
 	public boolean canCheckLine() { return lineCooldown <= 0; }
 	public boolean canCheckArc() { return arcCooldown <= 0; }
+	public boolean controlsLineMovement(double distance) {
+		return lineShootChance > 0.0F && distance <= lineRange;
+	}
+	public boolean controlsArcMovement(double distance) {
+		return arcShootChance > 0.0F && distance <= arcMaxRange
+				&& (distance >= arcMinRange || distance < arcSafeDistance);
+	}
 
 	public void resetLineCooldown() { lineCooldown = lineCooldownTicks; }
 	public void resetArcCooldown() { arcCooldown = arcCooldownTicks; }
@@ -90,7 +102,7 @@ public class PmbBowAiData {
 
 	public void read(ValueInput aiInput) {
 		Optional<ValueInput> input = aiInput.child(TAG);
-		if (input.isEmpty() || !hasAnyField(input.get(), "enable", "doConsume", "modePriority", "mobileWhileShooting", "lineRange", "lineSafeDistance",
+		if (input.isEmpty() || !hasAnyScalarField(input.get(), "enable", "doConsume", "modePriority", "mobileWhileShooting", "lineRange", "lineSafeDistance",
 				"lineCooldownTicks", "lineShootChance", "lineShootAccuracy", "lineChargeTicks", "linePower",
 				"arcMinRange", "arcMaxRange", "arcSafeDistance", "arcCooldownTicks", "arcShootChance", "arcShootAccuracy",
 				"arcChargeTicks", "arcAngle", "arcMaxPower")) {
@@ -177,35 +189,4 @@ public class PmbBowAiData {
 		return MODE_ARC.equalsIgnoreCase(value) ? MODE_ARC : MODE_LINE;
 	}
 
-	private static boolean hasAnyField(ValueInput input, String... keys) {
-		for (String key : keys) {
-			if (input.read(key, Codec.BOOL).isPresent() || input.read(key, Codec.BYTE).isPresent()
-					|| input.getInt(key).isPresent() || input.read(key, Codec.FLOAT).isPresent()
-					|| input.read(key, Codec.DOUBLE).isPresent() || input.getString(key).isPresent()) return true;
-		}
-		return false;
-	}
-
-	private static boolean getBooleanOr(ValueInput input, String key, boolean fallback) {
-		Optional<Boolean> value = input.read(key, Codec.BOOL);
-		if (value.isPresent()) return value.get();
-		Optional<Byte> byteValue = input.read(key, Codec.BYTE);
-		if (byteValue.isPresent()) return byteValue.get() != 0;
-		Optional<Integer> intValue = input.getInt(key);
-		return intValue.isPresent() ? intValue.get() != 0 : input.getBooleanOr(key, fallback);
-	}
-
-	private static int getIntOr(ValueInput input, String key, int fallback) { return input.getInt(key).orElse(fallback); }
-
-	private static float getFloatOr(ValueInput input, String key, float fallback) {
-		Optional<Float> value = input.read(key, Codec.FLOAT);
-		if (value.isPresent()) return value.get();
-		Optional<Double> doubleValue = input.read(key, Codec.DOUBLE);
-		if (doubleValue.isPresent()) return doubleValue.get().floatValue();
-		Optional<Integer> intValue = input.getInt(key);
-		return intValue.isPresent() ? intValue.get() : fallback;
-	}
-
-	private static int clamp(int value, int min, int max) { return Math.max(min, Math.min(max, value)); }
-	private static float clamp(float value, float min, float max) { return Math.max(min, Math.min(max, value)); }
 }

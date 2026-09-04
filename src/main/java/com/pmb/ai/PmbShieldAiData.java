@@ -2,9 +2,14 @@ package com.pmb.ai;
 
 import java.util.Optional;
 
-import com.mojang.serialization.Codec;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
+
+import static com.pmb.ai.PmbAiNbtReader.clamp;
+import static com.pmb.ai.PmbAiNbtReader.getBooleanOr;
+import static com.pmb.ai.PmbAiNbtReader.getFloatOr;
+import static com.pmb.ai.PmbAiNbtReader.getIntOr;
+import static com.pmb.ai.PmbAiNbtReader.hasAnyNumericField;
 
 public class PmbShieldAiData {
 	public static final String TAG = "shield";
@@ -19,7 +24,7 @@ public class PmbShieldAiData {
 	private static final int DEFAULT_SHIELD_TOUGHNESS = 1;
 	private static final int DEFAULT_CRIT_TOUGHNESS_DAMAGE = 1;
 	private static final int DEFAULT_DISABLE_VULNER_TICKS = 40;
-	private static final float DEFAULT_VULNER_DAMAGE_MULTIPLIER = 1.5F;
+	private static final float DEFAULT_VULNER_DAMAGE_MULTIPLIER = 2.0F;
 	private static final float DEFAULT_DISABLE_KB_MULTIPLIER = 1.2F;
 	private static final float DEFAULT_SPEED_REDUCTION = 0.5F;
 	private static final int MAX_USE_TICKS = 72000;
@@ -239,7 +244,7 @@ public class PmbShieldAiData {
 	}
 
 	private void readNested(ValueInput shieldInput) {
-		if (!hasAnyShieldField(shieldInput, "enable", "range", "shieldRange", "chance", "shieldChance",
+		if (!hasAnyNumericField(shieldInput, "enable", "range", "shieldRange", "chance", "shieldChance",
 				"minUseTicks", "shieldMinUseTicks", "maxUseTicks", "shieldMaxUseTicks", "cooldownTicks",
 				"shieldCooldownTicks", "blockingAngle", "axeDisableCooldownTicks", "shieldToughness",
 				"critToughnessDamage", "disableVulnerTicks", "vulnerDamageMultiplier", "disableKBMultiplier",
@@ -281,7 +286,7 @@ public class PmbShieldAiData {
 	}
 
 	private void readLegacyFlat(ValueInput aiInput) {
-		if (!hasAnyShieldField(aiInput, "shield", "shieldRange", "shieldChance", "shieldMinUseTicks",
+		if (!hasAnyNumericField(aiInput, "shield", "shieldRange", "shieldChance", "shieldMinUseTicks",
 				"shieldMaxUseTicks", "shieldCooldownTicks", "shieldSpeedReduction", "speedReduction",
 				"speedReductionPercent")) {
 			clear();
@@ -310,75 +315,6 @@ public class PmbShieldAiData {
 		resetShieldToughness();
 	}
 
-	private static boolean hasAnyShieldField(ValueInput input, String... keys) {
-		for (String key : keys) {
-			if (hasField(input, key)) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	private static boolean hasField(ValueInput input, String key) {
-		return input.read(key, Codec.BOOL).isPresent()
-				|| input.read(key, Codec.BYTE).isPresent()
-				|| input.getInt(key).isPresent()
-				|| input.read(key, Codec.FLOAT).isPresent()
-				|| input.read(key, Codec.DOUBLE).isPresent();
-	}
-
-	private static boolean getBooleanOr(ValueInput input, String key, boolean defaultValue) {
-		Optional<Boolean> booleanValue = input.read(key, Codec.BOOL);
-		if (booleanValue.isPresent()) {
-			return booleanValue.get();
-		}
-
-		Optional<Byte> byteValue = input.read(key, Codec.BYTE);
-		if (byteValue.isPresent()) {
-			return byteValue.get() != 0;
-		}
-
-		Optional<Integer> intValue = input.getInt(key);
-		if (intValue.isPresent()) {
-			return intValue.get() != 0;
-		}
-
-		return input.getBooleanOr(key, defaultValue);
-	}
-
-	private static int getIntOr(ValueInput input, int defaultValue, String... keys) {
-		for (String key : keys) {
-			Optional<Integer> value = input.getInt(key);
-			if (value.isPresent()) {
-				return value.get();
-			}
-		}
-
-		return defaultValue;
-	}
-
-	private static float getFloatOr(ValueInput input, float defaultValue, String... keys) {
-		for (String key : keys) {
-			Optional<Float> floatValue = input.read(key, Codec.FLOAT);
-			if (floatValue.isPresent()) {
-				return floatValue.get();
-			}
-
-			Optional<Double> doubleValue = input.read(key, Codec.DOUBLE);
-			if (doubleValue.isPresent()) {
-				return doubleValue.get().floatValue();
-			}
-
-			Optional<Integer> intValue = input.getInt(key);
-			if (intValue.isPresent()) {
-				return intValue.get();
-			}
-		}
-
-		return defaultValue;
-	}
-
 	private static float readSpeedReduction(ValueInput input) {
 		float value = getFloatOr(input, DEFAULT_SPEED_REDUCTION, "speedReduction", "shieldSpeedReduction",
 				"movementSpeedReduction", "speedReductionPercent");
@@ -389,11 +325,4 @@ public class PmbShieldAiData {
 		return clamp(value, 0.0F, 1.0F);
 	}
 
-	private static int clamp(int value, int min, int max) {
-		return Math.max(min, Math.min(max, value));
-	}
-
-	private static float clamp(float value, float min, float max) {
-		return Math.max(min, Math.min(max, value));
-	}
 }
