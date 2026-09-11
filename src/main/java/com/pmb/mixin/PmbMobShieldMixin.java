@@ -4,6 +4,11 @@ import com.pmb.PortableMobBehaviour;
 import com.pmb.ai.PmbAiHolder;
 import com.pmb.ai.PmbShieldAiData;
 import com.pmb.ai.PmbShieldVulnerableHolder;
+import com.pmb.ai.PmbSkillHooks;
+import com.pmb.ai.PmbSkillItemAccess;
+import com.pmb.ai.PmbSkillScheduler;
+import com.pmb.ai.PmbSkillTiming;
+import java.util.List;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
@@ -18,13 +23,16 @@ import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.Level;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(Mob.class)
-public abstract class PmbMobShieldMixin extends LivingEntity {
+public abstract class PmbMobShieldMixin extends LivingEntity implements PmbSkillHooks.Shield {
+	@Unique private PmbSkillItemAccess.ActionBinding pmb$shieldLease;
+	@Unique private InteractionHand pmb$shieldHand;
 	private static final String GUARD_VILLAGERS_NAMESPACE = "guardvillagers";
 	private static final Identifier SHIELD_SPEED_REDUCTION_ID = PortableMobBehaviour.id("shield_speed_reduction");
 
@@ -50,8 +58,8 @@ public abstract class PmbMobShieldMixin extends LivingEntity {
 		}
 	}
 
-	@Inject(method = "tick", at = @At("TAIL"))
-	private void pmb$tickShieldAi(CallbackInfo info) {
+	@Override
+	public void pmb$tickShieldSkill() {
 		if (level().isClientSide()) {
 			return;
 		}
@@ -82,7 +90,8 @@ public abstract class PmbMobShieldMixin extends LivingEntity {
 
 		((PmbShieldVulnerableHolder) this).pmb$setSyncedShieldVulnerableTicks(0);
 
-		if (!shieldAi.canUse() || mob.isNoAi() || getOffhandItem().getItem() != Items.SHIELD) {
+		if (!shieldAi.canUse() || mob.isNoAi() || (pmb$shieldLease == null && PmbSkillItemAccess.resolvePreferred(mob, shieldAi.fetchSource(), List.of(InteractionHand.OFF_HAND),
+				stack -> stack.is(Items.SHIELD), shieldAi.preferredHand(), "shield") == null)) {
 			stopPmbShield(shieldAi);
 			return;
 		}
@@ -97,10 +106,18 @@ public abstract class PmbMobShieldMixin extends LivingEntity {
 			continuePmbShield(shieldAi);
 			return;
 		}
+		PmbSkillScheduler scheduler = PmbSkillScheduler.of(mob);
+		if (scheduler.hasBinding("shield")) {
+			if (scheduler.release(mob, "shield")) {
+				pmb$shieldLease = null;
+				pmb$shieldHand = null;
+			}
+			if (scheduler.hasBinding("shield")) return;
+		}
 
-		if (isUsingItem() && getUsedItemHand() == InteractionHand.OFF_HAND) {
+		if (isUsingItem() && pmb$shieldHand != null && getUsedItemHand() == pmb$shieldHand) {
 			stopUsingItem();
-			shieldAi.setCooldown(shieldAi.cooldownTicks());
+			shieldAi.resetCooldown(getRandom());
 			removePmbShieldSpeedModifier();
 			return;
 		}
@@ -108,15 +125,43 @@ public abstract class PmbMobShieldMixin extends LivingEntity {
 		if (!shouldPmbRaiseShield(shieldAi, target) || shieldAi.cooldown() > 0) {
 			return;
 		}
+		PmbSkillItemAccess.Resolved item = PmbSkillItemAccess.resolvePreferred(mob,
+				shieldAi.fetchSource(), List.of(InteractionHand.OFF_HAND),
+				stack -> stack.is(Items.SHIELD), shieldAi.preferredHand(), "shield");
+		if (item == null) return;
+		PmbSkillScheduler.of(mob).offer("shield", PmbSkillScheduler.Category.OFF, 10,
+				() -> {
+					shieldAi.resetCooldown(getRandom());
+					return PmbSkillTiming.passesChance(getRandom(), shieldAi.chance());
+				}, () -> {
+					if (!shieldAi.canUse() || mob.isNoAi() || shieldAi.isVulnerable()
+							|| mob.getTarget() != target || !target.isAlive()
+							|| !shouldPmbRaiseShield(shieldAi, target)) return;
+					pmb$shieldLease = PmbSkillItemAccess.acquire(mob, item);
+					if (pmb$shieldLease == null) return;
+					if (!PmbSkillScheduler.of(mob).bind("shield", pmb$shieldLease)) { pmb$shieldLease = null; return;
+					}
+					pmb$shieldHand = pmb$shieldLease.hand();
+					shieldAi.setUseTicks(randomPmbShieldDuration(shieldAi));
+					startUsingItem(pmb$shieldHand);
+					updatePmbShieldSpeedModifier(shieldAi);
+				}, item.resources(PmbSkillScheduler.Resource.USE_ITEM));
+	}
 
-		if (getRandom().nextFloat() <= shieldAi.chance()) {
-			shieldAi.setUseTicks(randomPmbShieldDuration(shieldAi));
-			startUsingItem(InteractionHand.OFF_HAND);
-			updatePmbShieldSpeedModifier(shieldAi);
-		} else {
-			shieldAi.setCooldown(shieldAi.cooldownTicks());
-			removePmbShieldSpeedModifier();
-		}
+	@Override
+	public void pmb$cancelShieldSkill() { stopPmbShield(((PmbAiHolder) this).pmb$getAiData().shield()); }
+
+	@Override
+	public void pmb$claimShieldResources(PmbSkillScheduler scheduler) {
+		if (((PmbAiHolder) this).pmb$getAiData().shield().useTicks() > 0)
+			scheduler.claim("shield", pmb$shieldHand == InteractionHand.MAIN_HAND
+					? PmbSkillScheduler.Resource.MAIN_HAND : PmbSkillScheduler.Resource.OFF_HAND,
+					PmbSkillScheduler.Resource.USE_ITEM);
+	}
+
+	@Override
+	public void pmb$authorizeShieldAction() {
+		if (pmb$shieldLease != null) pmb$shieldLease.authorizeAction((Mob) (Object) this);
 	}
 
 	private boolean isGuardVillagersEntity(Mob mob) {
@@ -130,17 +175,24 @@ public abstract class PmbMobShieldMixin extends LivingEntity {
 	}
 
 	private void continuePmbShield(PmbShieldAiData shieldAi) {
+		if (pmb$shieldLease == null || !pmb$shieldLease.matches((Mob) (Object) this)) {
+			stopPmbShield(shieldAi); return;
+		}
 		if (!isUsingItem()) {
-			startUsingItem(InteractionHand.OFF_HAND);
+			startUsingItem(pmb$shieldHand);
 		}
 
-		if (!isUsingItem() || getUsedItemHand() != InteractionHand.OFF_HAND) {
-			shieldAi.setUseTicks(0);
-			shieldAi.resetShieldToughness();
+		if (!isUsingItem() || pmb$shieldHand == null || getUsedItemHand() != pmb$shieldHand) {
+			stopPmbShield(shieldAi);
 			return;
 		}
 
 		shieldAi.setUseTicks(shieldAi.useTicks() - 1);
+		if (shieldAi.useTicks() <= 0) {
+			shieldAi.resetCooldown(getRandom());
+			stopPmbShield(shieldAi);
+			return;
+		}
 		updatePmbShieldSpeedModifier(shieldAi);
 	}
 
@@ -156,10 +208,10 @@ public abstract class PmbMobShieldMixin extends LivingEntity {
 
 	private void stopPmbShield(PmbShieldAiData shieldAi) {
 		boolean resetToughness = shieldAi.disabledCooldown() <= 0 && (shieldAi.useTicks() > 0
-				|| (isUsingItem() && getUsedItemHand() == InteractionHand.OFF_HAND
-						&& getOffhandItem().getItem() == Items.SHIELD));
-		if (isUsingItem() && getUsedItemHand() == InteractionHand.OFF_HAND
-				&& (shieldAi.useTicks() > 0 || getOffhandItem().getItem() == Items.SHIELD)) {
+				|| (isUsingItem() && pmb$shieldHand != null && getUsedItemHand() == pmb$shieldHand
+						&& getItemInHand(pmb$shieldHand).is(Items.SHIELD)));
+		if (isUsingItem() && pmb$shieldHand != null && getUsedItemHand() == pmb$shieldHand
+				&& (shieldAi.useTicks() > 0 || getItemInHand(pmb$shieldHand).is(Items.SHIELD))) {
 			stopUsingItem();
 		}
 
@@ -168,6 +220,14 @@ public abstract class PmbMobShieldMixin extends LivingEntity {
 			shieldAi.resetShieldToughness();
 		}
 		removePmbShieldSpeedModifier();
+		if (pmb$shieldLease != null) {
+			if (PmbSkillScheduler.of((Mob) (Object) this).release((Mob) (Object) this, "shield")) {
+				pmb$shieldLease = null;
+				pmb$shieldHand = null;
+			}
+		} else {
+			pmb$shieldHand = null;
+		}
 	}
 
 	private void updatePmbShieldSpeedModifier(PmbShieldAiData shieldAi) {
@@ -177,7 +237,8 @@ public abstract class PmbMobShieldMixin extends LivingEntity {
 		}
 
 		float reduction = shieldAi.speedReduction();
-		if (reduction <= 0.0F || !isUsingItem() || getUsedItemHand() != InteractionHand.OFF_HAND) {
+		if (reduction <= 0.0F || !isUsingItem() || pmb$shieldHand == null
+				|| getUsedItemHand() != pmb$shieldHand) {
 			speed.removeModifier(SHIELD_SPEED_REDUCTION_ID);
 			return;
 		}

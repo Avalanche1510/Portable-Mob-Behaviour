@@ -100,17 +100,20 @@ public final class PmbFactionCommands {
 	private static com.mojang.brigadier.builder.LiteralArgumentBuilder<CommandSourceStack> compatCommands() {
 		return Commands.literal("compat").then(Commands.literal("set")
 				.then(Commands.literal("piglin")
-						.then(booleanCompatRule("greed"))
-						.then(booleanCompatRule("guarding"))
-						.then(booleanCompatRule("avoidance"))));
+						.then(booleanCompatRule("piglin", "greed"))
+						.then(booleanCompatRule("piglin", "guarding"))
+						.then(booleanCompatRule("piglin", "avoidance")))
+				.then(Commands.literal("breeze")
+						.then(booleanCompatRule("breeze", "windChargeNoAnger"))));
 	}
 
-	private static com.mojang.brigadier.builder.LiteralArgumentBuilder<CommandSourceStack> booleanCompatRule(String rule) {
+	private static com.mojang.brigadier.builder.LiteralArgumentBuilder<CommandSourceStack> booleanCompatRule(
+			String group, String rule) {
 		return Commands.literal(rule)
 				.then(Commands.argument("faction", PmbFactionNameArgument.factionName())
 						.then(Commands.argument("boolean", StringArgumentType.word())
 								.executes(context -> setBooleanCompatRule(context.getSource(), id(context, "faction"),
-										rule, parseBoolean(StringArgumentType.getString(context, "boolean"))))));
+										group, rule, parseBoolean(StringArgumentType.getString(context, "boolean"))))));
 	}
 
 	private static com.mojang.brigadier.builder.LiteralArgumentBuilder<CommandSourceStack> relationshipCommands() {
@@ -252,24 +255,28 @@ public final class PmbFactionCommands {
 				+ rules.defaultAttitude().serializedName() + ",evasiveSpeedMultiplier:" + rules.evasiveSpeedMultiplier()
 				+ "} VanillaCompatRules{piglin:{greed:" + compat.piglin().greed()
 				+ ",guarding:" + compat.piglin().guarding() + ",avoidance:" + compat.piglin().avoidance() + "}"
+				+ ",breeze:{windChargeNoAnger:" + compat.breeze().windChargeNoAnger() + "}"
 				+ "} Relationships:" + definition.relationships().size() + " Players:" + definition.players().size(), 1);
 	}
 
-	private static int setBooleanCompatRule(CommandSourceStack source, String id, String rule, boolean value)
+	private static int setBooleanCompatRule(CommandSourceStack source, String id, String group, String rule, boolean value)
 			throws CommandSyntaxException {
 		PmbVanillaCompatRules old = requireFaction(source, id).vanillaCompatRules();
 		PmbPiglinCompatRules piglin = old.piglin();
-		PmbVanillaCompatRules updated = switch (rule) {
-			case "greed" -> new PmbVanillaCompatRules(
-					new PmbPiglinCompatRules(value, piglin.guarding(), piglin.avoidance()));
-			case "guarding" -> new PmbVanillaCompatRules(
-					new PmbPiglinCompatRules(piglin.greed(), value, piglin.avoidance()));
-			case "avoidance" -> new PmbVanillaCompatRules(
-					new PmbPiglinCompatRules(piglin.greed(), piglin.guarding(), value));
-			default -> throw error("Unknown vanilla compatibility rule: " + rule);
+		PmbBreezeCompatRules breeze = old.breeze();
+		PmbVanillaCompatRules updated = switch (group + "." + rule) {
+			case "piglin.greed" -> new PmbVanillaCompatRules(
+					new PmbPiglinCompatRules(value, piglin.guarding(), piglin.avoidance()), breeze);
+			case "piglin.guarding" -> new PmbVanillaCompatRules(
+					new PmbPiglinCompatRules(piglin.greed(), value, piglin.avoidance()), breeze);
+			case "piglin.avoidance" -> new PmbVanillaCompatRules(
+					new PmbPiglinCompatRules(piglin.greed(), piglin.guarding(), value), breeze);
+			case "breeze.windChargeNoAnger" -> new PmbVanillaCompatRules(
+					piglin, new PmbBreezeCompatRules(value));
+			default -> throw error("Unknown vanilla compatibility rule: " + group + "." + rule);
 		};
 		data(source).update(id, faction -> faction.withVanillaCompatRules(updated));
-		return success(source, "Set " + id + " VanillaCompatRules.piglin." + rule + " to " + value, 1);
+		return success(source, "Set " + id + " VanillaCompatRules." + group + "." + rule + " to " + value, 1);
 	}
 
 	private static int setBooleanRule(CommandSourceStack source, String id, String rule, boolean value)

@@ -43,3 +43,5 @@ replay_*.log
 /.codex/
 /AGENTS.md
 /ExampleMod/
+/logs/
+/.codex-cache/equipment-movement-verification.md

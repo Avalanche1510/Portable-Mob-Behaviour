@@ -22,6 +22,14 @@ ender_pearl技能允许持有末影珍珠的生物在自定义最小至最大距
 
 PmbFaction是服务端持久实体NBT，可直接写入summon数据，例如`/summon minecraft:vindicator ~ ~ ~ {PmbFaction:{FactionName:"灾厄庭"}}`；派系必须预先存在。
 
+`26.9.4-2`加入统一的PMB技能调度入口与生物额外物品栏。技能可以通过`FetchSource`从主手、副手或指定的1–27号库存区间取得实际物品；装备交换永久保留。启用原版`CanPickUpLoot`时，未被原版装备或物种专用逻辑取走的物品可以进入额外库存。bow和ender_pearl新增默认`1b`的`requireEyeSight`；设为`0b`时只跳过各自的视线检查。
+
+`26.9.8-1`加入模块化`/pmb skills <targets> <skill> <mode>`测试指令。它为五种技能提供参数名和值补全、严格类型和值域检查、原子批量写入，以及可跨保存区分的显式参数增删；无需再手写整段PmbAi SNBT。
+
+`26.9.8-2`新增`preferredHand`，支持`main`、`off`、`main-enforce`、`off-enforce`及指令补全。bow默认main，shield/wind_charge/ender_pearl默认off，mace固定主手。目标手已有正确物品时直接使用，否则按`FetchSource`永久换装。弓的`AmmoSource`独立控制箭矢来源，省略时双手优先再扫描PMB库存。动作结束不归还物品；移动意图独立裁决，不阻止其他技能激活。
+
+`26.9.10-1`统一五项技能为先判定概率、再竞争动作资源，并加入默认20的`randomCooldownBias`随机冷却偏移；概率失败不再无效抢占资源。该版本还新增`VanillaCompatRules.breeze.windChargeNoAnger`，默认保留旋风人风弹的原版不激怒行为，同时允许其他合法LivingEntity来源的风弹使neutral Faction生物反击。
+
 ## 资源指南：
 
 [模组文档](https://github.com/Avalanche1510/Portable-Mob-Behaviour/blob/26.1.1/Docs/模组文档.md)  
@@ -76,6 +84,14 @@ A Faction-fleeing mob with the wind_charge skill enabled and a held wind charge 
 The ender_pearl skill lets a mob holding an ender pearl solve the required initial speed at a fixed launch angle inside a configurable minimum-to-maximum distance interval. Combat throws lead moving targets, while Faction evasion ignores the minimum and throws toward an escape position away from the threat.
 
 PmbFaction is persistent server-side entity NBT and can be supplied directly to summon, for example `/summon minecraft:vindicator ~ ~ ~ {PmbFaction:{FactionName:"IllagerCourt"}}`; the faction must already exist.
+
+`26.9.4-2` adds one coordinated PMB skill tick and a mob-only extra inventory. A skill can use `FetchSource` to obtain its real item from either hand or selected one-based inventory ranges from 1 through 27; equipment exchanges retain their final layout. With vanilla `CanPickUpLoot` enabled, items left behind by vanilla equipment and species-specific pickup logic may enter this extra inventory. bow and ender_pearl add `requireEyeSight`, defaulting to `1b`; `0b` skips only that skill's line-of-sight check.
+
+`26.9.8-1` adds the modular `/pmb skills <targets> <skill> <mode>` testing command. It provides parameter-name and value completion for all five skills, strict type and range validation, atomic bulk writes, and persistent explicit-field editing without hand-writing complete PmbAi SNBT.
+
+`26.9.8-2` adds `preferredHand` with `main`, `off`, `main-enforce`, `off-enforce` and enum completion. Bow defaults to main, shield/wind_charge/ender_pearl to off; mace always uses mainhand. A suitable destination-hand item is used directly; otherwise `FetchSource` supplies a permanent exchange. Bow `AmmoSource` independently selects arrows, defaulting to hands then PMB inventory. Actions no longer restore equipment and movement intentions do not block skill activation.
+
+`26.9.10-1` makes all five skills roll chance before competing for action resources and adds `randomCooldownBias`, defaulting to 20, so failed rolls no longer occupy unusable resources. It also adds `VanillaCompatRules.breeze.windChargeNoAnger`, preserving vanilla no-anger behavior for Breeze-owned wind charges by default while allowing wind charges from other valid living owners to make neutral Faction mobs retaliate.
 
 ## Resource Guide:
 

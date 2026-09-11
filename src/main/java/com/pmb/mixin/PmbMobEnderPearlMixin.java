@@ -2,9 +2,16 @@ package com.pmb.mixin;
 
 import com.pmb.ai.PmbAiHolder;
 import com.pmb.ai.PmbEnderPearlAiData;
+import com.pmb.ai.PmbEnderPearlBallistics;
 import com.pmb.ai.PmbShieldAiData;
+import com.pmb.ai.PmbSkillHooks;
+import com.pmb.ai.PmbSkillItemAccess;
+import com.pmb.ai.PmbSkillScheduler;
+import com.pmb.ai.PmbSkillTiming;
+import java.util.List;
 import com.pmb.faction.PmbFactionMobState;
 import net.minecraft.core.BlockPos;
+import net.minecraft.tags.FluidTags;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
@@ -25,13 +32,9 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 @Mixin(Mob.class)
-public abstract class PmbMobEnderPearlMixin extends LivingEntity {
+public abstract class PmbMobEnderPearlMixin extends LivingEntity implements PmbSkillHooks.Pearl {
 	@Unique private static final float PMB_VANILLA_PEARL_SPEED = 1.5F;
-	@Unique private static final double PMB_PEARL_DRAG = 0.99D;
-	@Unique private static final double PMB_PEARL_GRAVITY = 0.03D;
-	@Unique private static final int PMB_PEARL_SIMULATION_TICKS = 300;
 	@Unique private static final int PMB_PEARL_LOOK_TICKS = 4;
-	@Unique private static final double PMB_MIN_SOLVE_SPEED = 0.01D;
 
 	@Unique private Vec3 pmb$pearlLookPoint;
 	@Unique private int pmb$pearlLookTicks;
@@ -40,8 +43,8 @@ public abstract class PmbMobEnderPearlMixin extends LivingEntity {
 		super(entityType, level);
 	}
 
-	@Inject(method = "tick", at = @At("TAIL"))
-	private void pmb$tickEnderPearlAi(CallbackInfo info) {
+	@Override
+	public void pmb$tickPearlSkill() {
 		if (!(level() instanceof ServerLevel serverLevel)) {
 			return;
 		}
@@ -60,8 +63,7 @@ public abstract class PmbMobEnderPearlMixin extends LivingEntity {
 			pmb$clearPearlLook();
 			return;
 		}
-		InteractionHand hand = pmb$enderPearlHand();
-		if (hand == null || pearlAi.throwChance() <= 0.0F) {
+		if (pearlAi.throwChance() <= 0.0F) {
 			return;
 		}
 
@@ -75,15 +77,35 @@ public abstract class PmbMobEnderPearlMixin extends LivingEntity {
 		double distanceSquared = distanceToSqr(target);
 		boolean inThrowRange = distanceSquared <= pearlAi.maxThrowRange() * pearlAi.maxThrowRange()
 				&& (evasive || distanceSquared >= pearlAi.minThrowRange() * pearlAi.minThrowRange());
-		if (!inThrowRange || !hasLineOfSight(target) || !pearlAi.canCheckThrow()) {
+		boolean hasRequiredEyeSight = !pearlAi.requireEyeSight() || (target != null && hasLineOfSight(target));
+		if (!inThrowRange || !hasRequiredEyeSight || !pearlAi.canCheckThrow() || pmb$pearlLaunchPointInWater()) {
 			return;
 		}
 
-		pearlAi.resetThrowCooldown();
-		if (getRandom().nextFloat() > pearlAi.throwChance()) {
-			return;
-		}
-		pmb$throwEnderPearl(serverLevel, mob, hand, target, pearlAi, evasive);
+		PmbSkillItemAccess.Resolved item = PmbSkillItemAccess.resolvePreferred(mob, pearlAi.fetchSource(),
+				List.of(InteractionHand.MAIN_HAND, InteractionHand.OFF_HAND), stack -> stack.is(Items.ENDER_PEARL),
+				pearlAi.preferredHand(), "pearl");
+		if (item == null) return;
+		PmbSkillScheduler.of(mob).offerDynamic("pearl", PmbSkillScheduler.Category.THROW, 20,
+				() -> {
+					pearlAi.resetThrowCooldown(getRandom());
+					return PmbSkillTiming.passesChance(getRandom(), pearlAi.throwChance());
+				}, () -> {
+					Vec3 velocity = pmb$planEnderPearlLaunch(mob, target, pearlAi, evasive);
+					if (velocity == null) return;
+					PmbSkillItemAccess.ActionBinding lease = PmbSkillItemAccess.acquire(mob, item);
+					if (lease == null) return;
+					pmb$throwEnderPearl(serverLevel, mob, lease.hand(), pearlAi, velocity);
+					lease.authorizeAction(mob);
+				}, () -> item.resources(PmbSkillScheduler.Resource.LOOK));
+	}
+
+	@Override
+	public void pmb$cancelPearlSkill() { pmb$clearPearlLook(); }
+
+	@Override
+	public void pmb$claimPearlResources(PmbSkillScheduler scheduler) {
+		if (pmb$pearlLookTicks > 0) scheduler.claim("pearl", PmbSkillScheduler.Resource.LOOK);
 	}
 
 	@Unique
@@ -98,13 +120,17 @@ public abstract class PmbMobEnderPearlMixin extends LivingEntity {
 	}
 
 	@Unique
-	private void pmb$throwEnderPearl(ServerLevel level, Mob mob, InteractionHand hand, LivingEntity target,
+	private Vec3 pmb$planEnderPearlLaunch(Mob mob, LivingEntity target,
 			PmbEnderPearlAiData pearlAi, boolean evasive) {
-		ItemStack heldStack = getItemInHand(hand);
-		if (!heldStack.is(Items.ENDER_PEARL)) {
-			return;
-		}
-		ItemStack projectileStack = heldStack.copyWithCount(1);
+		if (!isAlive() || mob.isNoAi() || !pearlAi.isEnabled()
+				|| ((PmbAiHolder) this).pmb$getAiData().shield().isVulnerable()
+				|| !target.isAlive() || target.level() != level() || pmb$pearlLaunchPointInWater()
+				|| (pearlAi.requireEyeSight() && !hasLineOfSight(target))) return null;
+		LivingEntity currentTarget = evasive
+				? ((PmbFactionMobState) mob).pmb$getFactionAvoidTarget() : mob.getTarget();
+		double distance = distanceTo(target);
+		if (currentTarget != target || distance > pearlAi.maxThrowRange()
+				|| (!evasive && distance < pearlAi.minThrowRange())) return null;
 		Vec3 start = new Vec3(getX(), getEyeY() - 0.1D, getZ());
 		Vec3 targetPoint = evasive
 				? pmb$evasivePearlDestination(mob, target, pearlAi.maxThrowRange())
@@ -112,6 +138,16 @@ public abstract class PmbMobEnderPearlMixin extends LivingEntity {
 		float maxSpeed = PMB_VANILLA_PEARL_SPEED * pearlAi.maxThrowPower();
 		double angle = Math.toRadians(pearlAi.throwAngle());
 		Vec3 velocity = pmb$pearlVelocity(start, targetPoint, evasive ? null : target, angle, maxSpeed);
+		if (velocity == null || !Double.isFinite(velocity.lengthSqr()) || velocity.lengthSqr() <= 0.0D
+				|| velocity.length() > maxSpeed * (1.0D + 1.0E-12D)) return null;
+		return velocity;
+	}
+
+	@Unique
+	private void pmb$throwEnderPearl(ServerLevel level, Mob mob, InteractionHand hand,
+			PmbEnderPearlAiData pearlAi, Vec3 velocity) {
+		ItemStack heldStack = getItemInHand(hand);
+		ItemStack projectileStack = heldStack.copyWithCount(1);
 		pmb$facePearlVelocity(mob, velocity);
 
 		ThrownEnderpearl pearl = new ThrownEnderpearl(level, this, projectileStack);
@@ -126,6 +162,14 @@ public abstract class PmbMobEnderPearlMixin extends LivingEntity {
 			heldStack.consume(1, this);
 			setItemInHand(hand, heldStack.isEmpty() ? ItemStack.EMPTY : heldStack.copy());
 		}
+	}
+
+	@Unique
+	private boolean pmb$pearlLaunchPointInWater() {
+		Vec3 point = new Vec3(getX(), getEyeY() - 0.1D, getZ());
+		BlockPos pos = BlockPos.containing(point);
+		var fluid = level().getFluidState(pos);
+		return fluid.is(FluidTags.WATER) && point.y() < pos.getY() + fluid.getHeight(level(), pos);
 	}
 
 	@Unique
@@ -159,92 +203,20 @@ public abstract class PmbMobEnderPearlMixin extends LivingEntity {
 	private Vec3 pmb$pearlVelocity(Vec3 start, Vec3 initialTargetPoint, LivingEntity movingTarget,
 			double angle, float maxSpeed) {
 		Vec3 targetPoint = initialTargetPoint;
-		double[] solution = pmb$solvePearlSpeed(start, targetPoint, angle, maxSpeed);
-		if (movingTarget != null) {
-			for (int i = 0; i < 3; i++) {
-				targetPoint = movingTarget.getEyePosition()
-						.add(movingTarget.getDeltaMovement().scale(solution[1]));
-				solution = pmb$solvePearlSpeed(start, targetPoint, angle, maxSpeed);
-			}
+		Vec3 movement = movingTarget == null ? Vec3.ZERO : movingTarget.getDeltaMovement().multiply(1.0D, 0.0D, 1.0D);
+		PmbEnderPearlBallistics.Solution solution = null;
+		for (int i = 0; i <= 3; i++) {
+			Vec3 offset = targetPoint.subtract(start);
+			solution = PmbEnderPearlBallistics.solve(Math.hypot(offset.x(), offset.z()), offset.y(), angle, maxSpeed);
+			if (solution.status() == PmbEnderPearlBallistics.Status.INVALID) return null;
+			if (solution.status() == PmbEnderPearlBallistics.Status.POWER_LIMITED || movingTarget == null || i == 3) break;
+			// Jump velocity must not be extrapolated as constant upward motion.
+			targetPoint = initialTargetPoint.add(movement.scale(solution.time()));
 		}
-
 		Vec3 horizontal = targetPoint.subtract(start).multiply(1.0D, 0.0D, 1.0D);
-		Vec3 horizontalDirection = horizontal.lengthSqr() > 1.0E-8D
-				? horizontal.normalize()
-				: getLookAngle().multiply(1.0D, 0.0D, 1.0D).normalize();
-		if (horizontalDirection.lengthSqr() < 1.0E-8D) {
-			horizontalDirection = new Vec3(0.0D, 0.0D, 1.0D);
-		}
-		double speed = solution[0];
-		return horizontalDirection.scale(Math.cos(angle) * speed)
-				.add(0.0D, Math.sin(angle) * speed, 0.0D);
-	}
-
-	@Unique
-	private double[] pmb$solvePearlSpeed(Vec3 start, Vec3 targetPoint, double angle, double maxSpeed) {
-		double horizontalDistance = pmb$horizontalDistance(start, targetPoint);
-		double targetHeight = targetPoint.y() - start.y();
-		if (horizontalDistance < 1.0E-6D) {
-			return new double[] {maxSpeed, Math.max(1.0D, Math.abs(targetHeight) / maxSpeed)};
-		}
-
-		double[] maximum = pmb$simulatePearl(horizontalDistance, targetHeight, angle, maxSpeed);
-		if (maximum[2] == 0.0D || maximum[0] < targetHeight) {
-			return new double[] {maxSpeed, maximum[1]};
-		}
-
-		double low = PMB_MIN_SOLVE_SPEED;
-		double high = maxSpeed;
-		for (int i = 0; i < 20; i++) {
-			double speed = (low + high) * 0.5D;
-			double[] result = pmb$simulatePearl(horizontalDistance, targetHeight, angle, speed);
-			if (result[2] != 0.0D && result[0] >= targetHeight) {
-				high = speed;
-			} else {
-				low = speed;
-			}
-		}
-		double[] solved = pmb$simulatePearl(horizontalDistance, targetHeight, angle, high);
-		return new double[] {high, solved[1]};
-	}
-
-	@Unique
-	private double[] pmb$simulatePearl(double distance, double targetHeight, double angle, double speed) {
-		double x = 0.0D;
-		double y = 0.0D;
-		double velocityX = Math.cos(angle) * speed;
-		double velocityY = Math.sin(angle) * speed;
-		double bestMiss = distance * distance + targetHeight * targetHeight;
-		double bestTime = 1.0D;
-		for (int tick = 1; tick <= PMB_PEARL_SIMULATION_TICKS; tick++) {
-			double previousX = x;
-			double previousY = y;
-			velocityY -= PMB_PEARL_GRAVITY;
-			velocityX *= PMB_PEARL_DRAG;
-			velocityY *= PMB_PEARL_DRAG;
-			x += velocityX;
-			y += velocityY;
-			double miss = (distance - x) * (distance - x) + (targetHeight - y) * (targetHeight - y);
-			if (miss < bestMiss) {
-				bestMiss = miss;
-				bestTime = tick;
-			}
-			if (x >= distance && x > previousX) {
-				double fraction = (distance - previousX) / (x - previousX);
-				double crossingY = previousY + (y - previousY) * fraction;
-				double crossingTime = tick - 1.0D + fraction;
-				double verticalMiss = crossingY - targetHeight;
-				return new double[] {crossingY, crossingTime, 1.0D, verticalMiss * verticalMiss};
-			}
-		}
-		return new double[] {y, bestTime, 0.0D, bestMiss};
-	}
-
-	@Unique
-	private double pmb$horizontalDistance(Vec3 first, Vec3 second) {
-		double x = second.x() - first.x();
-		double z = second.z() - first.z();
-		return Math.sqrt(x * x + z * z);
+		Vec3 horizontalDirection = horizontal.scale(1.0D / Math.hypot(horizontal.x(), horizontal.z()));
+		return horizontalDirection.scale(Math.cos(angle) * solution.speed())
+				.add(0.0D, Math.sin(angle) * solution.speed(), 0.0D);
 	}
 
 	@Unique

@@ -26,9 +26,10 @@ public final class PmbBowPose {
 	private static boolean pose(boolean usingItem, float ticksUsingItem, InteractionHand useItemHand,
 			HumanoidArm mainArm, ItemStack rightHand, ItemStack leftHand, ModelPart head,
 			ModelPart rightArm, ModelPart leftArm) {
-		if ((!usingItem && ticksUsingItem <= 0.0F) || useItemHand != InteractionHand.MAIN_HAND) return false;
-		ItemStack mainHand = mainArm == HumanoidArm.RIGHT ? rightHand : leftHand;
-		if (!mainHand.is(Items.BOW)) return false;
+		if (!usingItem && ticksUsingItem <= 0.0F) return false;
+		HumanoidArm bowArm = useItemHand == InteractionHand.MAIN_HAND ? mainArm : mainArm.getOpposite();
+		ItemStack bowHand = bowArm == HumanoidArm.RIGHT ? rightHand : leftHand;
+		if (!bowHand.is(Items.BOW)) return false;
 
 		rightArm.visible = true;
 		leftArm.visible = true;
@@ -36,7 +37,7 @@ public final class PmbBowPose {
 		leftArm.zRot = 0.0F;
 		rightArm.xRot = -HALF_PI + head.xRot;
 		leftArm.xRot = -HALF_PI + head.xRot;
-		if (mainArm == HumanoidArm.RIGHT) {
+		if (bowArm == HumanoidArm.RIGHT) {
 			rightArm.yRot = -0.1F + head.yRot;
 			leftArm.yRot = 0.1F + head.yRot + 0.4F;
 		} else {

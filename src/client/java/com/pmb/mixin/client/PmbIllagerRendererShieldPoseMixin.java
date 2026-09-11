@@ -22,7 +22,7 @@ public class PmbIllagerRendererShieldPoseMixin {
 		if (!illager.isUsingItem()) {
 			return;
 		}
-		if (illager.getUsedItemHand() == InteractionHand.MAIN_HAND && illager.getMainHandItem().is(Items.BOW)) {
+		if (illager.getItemInHand(illager.getUsedItemHand()).is(Items.BOW)) {
 			state.armPose = AbstractIllager.IllagerArmPose.BOW_AND_ARROW;
 			return;
 		}

@@ -63,6 +63,18 @@ java {
 	targetCompatibility = JavaVersion.VERSION_25
 }
 
+// Dependency-free regression executable for equipment and movement arbitration.
+tasks.register('equipmentMovementTest', JavaExec) {
+	dependsOn testClasses
+	classpath = sourceSets.test.runtimeClasspath
+	mainClass = 'com.pmb.ai.PmbEquipmentMovementTest'
+}
+
+tasks.named('check') { dependsOn equipmentMovementTest }
+
+// Regression sources above use their main executable instead of a third-party test engine.
+tasks.named('test') { failOnNoDiscoveredTests = false }
+
 jar {
 	def projectName = project.name
 	inputs.property "projectName", projectName

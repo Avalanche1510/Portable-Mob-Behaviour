@@ -27,6 +27,11 @@ final class PmbAiNbtReader {
 		return false;
 	}
 
+	static boolean hasField(ValueInput input, String key) {
+		return hasNumericField(input, key) || input.getString(key).isPresent()
+				|| input.list(key, Codec.STRING).isPresent();
+	}
+
 	static boolean getBooleanOr(ValueInput input, String key, boolean defaultValue) {
 		Optional<Boolean> booleanValue = input.read(key, Codec.BOOL);
 		if (booleanValue.isPresent()) {

@@ -1,9 +1,16 @@
 package com.pmb.mixin;
 
 import com.pmb.ai.PmbAiHolder;
+import com.pmb.ai.PmbMovementController;
 import com.pmb.ai.PmbBowAiData;
 import com.pmb.ai.PmbBowMoveControl;
 import com.pmb.ai.PmbShieldAiData;
+import com.pmb.ai.PmbSkillHooks;
+import com.pmb.ai.PmbSkillItemAccess;
+import com.pmb.ai.PmbAmmoAccess;
+import com.pmb.ai.PmbSkillScheduler;
+import com.pmb.ai.PmbSkillTiming;
+import java.util.List;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.InteractionHand;
@@ -27,7 +34,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(Mob.class)
-public abstract class PmbMobBowMixin extends LivingEntity {
+public abstract class PmbMobBowMixin extends LivingEntity implements PmbSkillHooks.Bow {
 	@Unique private static final int PMB_BOW_NONE = 0;
 	@Unique private static final int PMB_BOW_LINE = 1;
 	@Unique private static final int PMB_BOW_ARC = 2;
@@ -42,6 +49,9 @@ public abstract class PmbMobBowMixin extends LivingEntity {
 	@Unique private int pmb$bowStrafeTicks;
 	@Unique private boolean pmb$bowStrafeClockwise;
 	@Unique private boolean pmb$bowStrafeForward;
+	@Unique private PmbSkillItemAccess.ActionBinding pmb$bowLease;
+	@Unique private PmbAmmoAccess.Source pmb$bowAmmo;
+	@Unique private InteractionHand pmb$bowHand;
 
 	protected PmbMobBowMixin(EntityType<? extends LivingEntity> entityType, Level level) {
 		super(entityType, level);
@@ -50,12 +60,12 @@ public abstract class PmbMobBowMixin extends LivingEntity {
 	@Inject(method = "doHurtTarget", at = @At("HEAD"), cancellable = true)
 	private void pmb$disableMeleeWhileUsingBowAi(ServerLevel level, Entity target,
 			CallbackInfoReturnable<Boolean> info) {
-		PmbBowAiData bowAi = ((PmbAiHolder) this).pmb$getAiData().bow();
-		if (bowAi.isEnabled() && getMainHandItem().is(Items.BOW)) info.setReturnValue(false);
+		if (!((PmbSkillHooks.Mace) this).pmb$isPerformingMaceSmash()
+				&& PmbSkillItemAccess.shouldSuppressMeleeForBow((Mob) (Object) this)) info.setReturnValue(false);
 	}
 
-	@Inject(method = "tick", at = @At("TAIL"))
-	private void pmb$tickBowAi(CallbackInfo info) {
+	@Override
+	public void pmb$tickBowSkill() {
 		if (!(level() instanceof ServerLevel serverLevel)) return;
 
 		Mob mob = (Mob) (Object) this;
@@ -69,41 +79,81 @@ public abstract class PmbMobBowMixin extends LivingEntity {
 			pmb$tickBowCharge(serverLevel, mob, bowAi);
 			return;
 		}
+		PmbSkillScheduler scheduler = PmbSkillScheduler.of(mob);
+		if (scheduler.hasBinding("bow")) {
+			if (scheduler.release(mob, "bow")) pmb$bowLease = null;
+			if (scheduler.hasBinding("bow")) return;
+		}
 
 		PmbShieldAiData shieldAi = ((PmbAiHolder) this).pmb$getAiData().shield();
-		if (!bowAi.isEnabled() || mob.isNoAi() || shieldAi.isVulnerable() || !getMainHandItem().is(Items.BOW)) return;
+		if (!bowAi.isEnabled() || mob.isNoAi() || shieldAi.isVulnerable()) return;
+		PmbSkillItemAccess.Resolved bowItem = PmbSkillItemAccess.resolvePreferred(mob,
+				bowAi.fetchSource(), List.of(InteractionHand.MAIN_HAND),
+				stack -> stack.is(Items.BOW), bowAi.preferredHand(), "bow");
+		if (bowItem == null) return;
 
 		LivingEntity target = mob.getTarget();
-		if (!pmb$isValidBowTarget(mob, target) || !hasLineOfSight(target) || !pmb$hasBowAmmo(bowAi)) return;
+		boolean hasRequiredEyeSight = !bowAi.requireEyeSight() || (target != null && hasLineOfSight(target));
+		if (!pmb$isValidBowTarget(mob, target) || !hasRequiredEyeSight || !pmb$hasBowAmmo(bowAi)) return;
 
 		double distance = distanceTo(target);
-		int movementMode = pmb$movementMode(bowAi, distance);
-		if (movementMode != PMB_BOW_NONE) {
-			pmb$moveWhileShooting(mob, bowAi, target, movementMode);
-		}
 		boolean lineReady = bowAi.lineShootChance() > 0.0F && bowAi.canCheckLine()
-				&& distance <= bowAi.lineRange();
+				&& distance >= bowAi.lineMinRange() && distance <= bowAi.lineMaxRange();
 		boolean arcReady = bowAi.arcShootChance() > 0.0F && bowAi.canCheckArc()
 				&& distance >= bowAi.arcMinRange() && distance <= bowAi.arcMaxRange();
 		int mode = pmb$selectBowMode(bowAi, lineReady, arcReady);
 		if (mode == PMB_BOW_NONE) return;
 
 		float chance;
-		if (mode == PMB_BOW_LINE) {
-			bowAi.resetLineCooldown();
-			chance = bowAi.lineShootChance();
-		} else {
-			bowAi.resetArcCooldown();
-			chance = bowAi.arcShootChance();
-		}
-		if (getRandom().nextFloat() > chance) return;
+		chance = mode == PMB_BOW_LINE ? bowAi.lineShootChance() : bowAi.arcShootChance();
+		PmbSkillScheduler.Resource[] actionResources = bowItem.resources(PmbSkillScheduler.Resource.USE_ITEM, PmbSkillScheduler.Resource.LOOK);
+		PmbSkillScheduler.of(mob).offer("bow", PmbSkillScheduler.Category.MAIN, 10, () -> {
+			if (mode == PMB_BOW_LINE) bowAi.resetLineCooldown(getRandom());
+			else bowAi.resetArcCooldown(getRandom());
+			return PmbSkillTiming.passesChance(getRandom(), chance);
+		}, () -> {
+			LivingEntity currentTarget = mob.getTarget();
+			boolean currentEyeSight = !bowAi.requireEyeSight()
+					|| currentTarget != null && hasLineOfSight(currentTarget);
+			if (!bowAi.isEnabled() || mob.isNoAi()
+					|| ((PmbAiHolder) this).pmb$getAiData().shield().isVulnerable()
+					|| currentTarget != target || !pmb$isValidBowTarget(mob, target) || !currentEyeSight) return;
+			double currentDistance = distanceTo(target);
+			boolean stillInModeRange = mode == PMB_BOW_LINE
+					? currentDistance >= bowAi.lineMinRange() && currentDistance <= bowAi.lineMaxRange()
+					: currentDistance >= bowAi.arcMinRange() && currentDistance <= bowAi.arcMaxRange();
+			if (!stillInModeRange || !pmb$hasBowAmmo(bowAi)) return;
+			// AmmoSource locations are defined before an inventory bow lease displaces its use hand.
+			PmbAmmoAccess.Source selectedAmmo = pmb$findArrow(bowAi);
+			if (bowAi.doConsume() && selectedAmmo == null) return;
+			pmb$bowLease = PmbSkillItemAccess.acquire(mob, bowItem);
+			if (pmb$bowLease == null) return;
+			if (selectedAmmo != null) selectedAmmo.followEquipmentSwap(pmb$bowLease);
+			pmb$bowAmmo = selectedAmmo;
+			if (pmb$bowAmmo != null && !pmb$bowAmmo.matches(mob)) { pmb$bowLease = null; pmb$bowAmmo = null; return;
+			}
+			if (!PmbSkillScheduler.of(mob).bind("bow", pmb$bowLease)) { pmb$bowLease = null; pmb$bowAmmo = null; return;
+			}
+			pmb$bowChargeMode = mode;
+			pmb$bowChargeTicks = mode == PMB_BOW_LINE ? bowAi.lineChargeTicks() : bowAi.arcChargeTicks();
+			pmb$bowTarget = target;
+			pmb$bowHand = pmb$bowLease.hand();
+			pmb$faceBowTrajectory(mob, target, bowAi, mode);
+			startUsingItem(pmb$bowHand);
+			pmb$offerBowMovement(mob, bowAi, target, mode);
+			if (pmb$bowChargeTicks == 0) pmb$releaseBow(serverLevel, mob, bowAi);
+		}, actionResources);
+	}
 
-		pmb$bowChargeMode = mode;
-		pmb$bowChargeTicks = mode == PMB_BOW_LINE ? bowAi.lineChargeTicks() : bowAi.arcChargeTicks();
-		pmb$bowTarget = target;
-		pmb$faceBowTrajectory(mob, target, bowAi, mode);
-		startUsingItem(InteractionHand.MAIN_HAND);
-		if (pmb$bowChargeTicks == 0) pmb$releaseBow(serverLevel, mob, bowAi);
+	@Override
+	public void pmb$cancelBowSkill() { pmb$cancelBowCharge(); }
+
+	@Override
+	public void pmb$claimBowResources(PmbSkillScheduler scheduler) {
+		if (pmb$bowChargeMode != PMB_BOW_NONE) {
+			scheduler.claim("bow", PmbSkillItemAccess.resource(pmb$bowHand),
+					PmbSkillScheduler.Resource.USE_ITEM, PmbSkillScheduler.Resource.LOOK);
+		}
 	}
 
 	@Unique
@@ -112,10 +162,10 @@ public abstract class PmbMobBowMixin extends LivingEntity {
 			pmb$cancelBowCharge();
 			return;
 		}
-		pmb$moveWhileShooting(mob, bowAi, pmb$bowTarget, pmb$bowChargeMode);
+		pmb$offerBowMovement(mob, bowAi, pmb$bowTarget, pmb$bowChargeMode);
 		pmb$faceBowTrajectory(mob, pmb$bowTarget, bowAi, pmb$bowChargeMode);
-		if (!isUsingItem() || getUsedItemHand() != InteractionHand.MAIN_HAND) {
-			startUsingItem(InteractionHand.MAIN_HAND);
+		if (!isUsingItem() || getUsedItemHand() != pmb$bowHand) {
+			startUsingItem(pmb$bowHand);
 		}
 		if (pmb$bowChargeTicks > 0) pmb$bowChargeTicks--;
 		if (pmb$bowChargeTicks == 0) pmb$releaseBow(level, mob, bowAi);
@@ -124,12 +174,18 @@ public abstract class PmbMobBowMixin extends LivingEntity {
 	@Unique
 	private boolean pmb$canContinueBowCharge(Mob mob, PmbBowAiData bowAi) {
 		PmbShieldAiData shieldAi = ((PmbAiHolder) this).pmb$getAiData().shield();
-		if (!bowAi.isEnabled() || mob.isNoAi() || shieldAi.isVulnerable() || !getMainHandItem().is(Items.BOW)
-				|| !pmb$isValidBowTarget(mob, pmb$bowTarget) || !hasLineOfSight(pmb$bowTarget)
-				|| !pmb$hasBowAmmo(bowAi) || mob.getTarget() != pmb$bowTarget) return false;
+		boolean hasRequiredEyeSight = !bowAi.requireEyeSight()
+				|| (pmb$bowTarget != null && hasLineOfSight(pmb$bowTarget));
+		if (!bowAi.isEnabled() || mob.isNoAi() || shieldAi.isVulnerable() || pmb$bowHand == null
+				|| !getItemInHand(pmb$bowHand).is(Items.BOW)
+				|| pmb$bowLease == null || !pmb$bowLease.matches(mob)
+				|| !pmb$isValidBowTarget(mob, pmb$bowTarget)
+				|| !hasRequiredEyeSight
+				|| (pmb$bowAmmo != null ? !pmb$bowAmmo.matches(mob) : bowAi.doConsume())
+				|| mob.getTarget() != pmb$bowTarget) return false;
 		double distance = distanceTo(pmb$bowTarget);
 		return pmb$bowChargeMode == PMB_BOW_LINE
-				? bowAi.lineShootChance() > 0.0F && distance <= bowAi.lineRange()
+				? bowAi.lineShootChance() > 0.0F && distance >= bowAi.lineMinRange() && distance <= bowAi.lineMaxRange()
 				: bowAi.arcShootChance() > 0.0F && distance >= bowAi.arcMinRange() && distance <= bowAi.arcMaxRange();
 	}
 
@@ -146,12 +202,18 @@ public abstract class PmbMobBowMixin extends LivingEntity {
 	}
 
 	@Unique
-	private int pmb$movementMode(PmbBowAiData bowAi, double distance) {
-		boolean line = bowAi.controlsLineMovement(distance);
-		boolean arc = bowAi.controlsArcMovement(distance);
-		return pmb$selectBowMode(bowAi, line, arc);
+	private void pmb$offerBowMovement(Mob mob, PmbBowAiData bowAi, LivingEntity target, int mode) {
+		PmbSkillScheduler.of(mob).movement().submit(mob, "bow", PmbMovementController.Type.LOCOMOTION,
+				PmbMovementController.Tier.ACTIVE,
+				PmbSkillScheduler.Category.MAIN, 10,
+				() -> isAlive() && !mob.isNoAi() && bowAi.isEnabled() && mob.getTarget() == target
+						&& pmb$isValidBowTarget(mob, target)
+						&& ((com.pmb.faction.PmbFactionMobState) mob).pmb$getFactionAvoidTarget() == null
+						&& (!bowAi.requireEyeSight() || hasLineOfSight(target))
+						&& pmb$bowChargeMode != PMB_BOW_NONE && pmb$canContinueBowCharge(mob, bowAi)
+						&& mode == pmb$bowChargeMode,
+				() -> pmb$moveWhileShooting(mob, bowAi, target, mode));
 	}
-
 	@Unique
 	private void pmb$moveWhileShooting(Mob mob, PmbBowAiData bowAi, LivingEntity target, int mode) {
 		double distance = distanceTo(target);
@@ -175,18 +237,13 @@ public abstract class PmbMobBowMixin extends LivingEntity {
 
 	@Unique
 	private boolean pmb$hasBowAmmo(PmbBowAiData bowAi) {
-		return !bowAi.doConsume() || pmb$isSupportedArrow(getOffhandItem());
+		return !bowAi.doConsume() || pmb$findArrow(bowAi) != null;
 	}
 
 	@Unique
-	private boolean pmb$isSupportedArrow(ItemStack stack) {
-		return getMainHandItem().getItem() instanceof BowItem bow && bow.getAllSupportedProjectiles().test(stack);
-	}
-
-	@Unique
-	private ItemStack pmb$arrowForShot() {
-		ItemStack offhand = getOffhandItem();
-		return pmb$isSupportedArrow(offhand) ? offhand.copyWithCount(1) : new ItemStack(Items.ARROW);
+	private PmbAmmoAccess.Source pmb$findArrow(PmbBowAiData bowAi) {
+		return PmbAmmoAccess.find((Mob) (Object) this, bowAi.ammoSource(),
+				((BowItem) Items.BOW).getAllSupportedProjectiles());
 	}
 
 	@Unique
@@ -198,8 +255,9 @@ public abstract class PmbMobBowMixin extends LivingEntity {
 			return;
 		}
 
-		ItemStack bowStack = getMainHandItem();
-		ItemStack arrowStack = pmb$arrowForShot();
+		ItemStack bowStack = getItemInHand(pmb$bowHand);
+		PmbAmmoAccess.Source ammo = pmb$bowAmmo;
+		ItemStack arrowStack = ammo == null ? new ItemStack(Items.ARROW) : ammo.projectile();
 		AbstractArrow arrow = ProjectileUtil.getMobArrow(this, arrowStack, 1.0F, bowStack);
 		Vec3 velocity;
 		float accuracy;
@@ -218,7 +276,9 @@ public abstract class PmbMobBowMixin extends LivingEntity {
 				power, inaccuracy);
 		level.playSound(null, getX(), getY(), getZ(), SoundEvents.ARROW_SHOOT, getSoundSource(), 1.0F,
 				1.0F / (getRandom().nextFloat() * 0.4F + 0.8F));
-		if (bowAi.doConsume()) pmb$consumeArrow();
+		if (bowAi.doConsume() && ammo != null) {
+			if (!ammo.consume(mob)) { arrow.discard(); pmb$cancelBowCharge(); return; }
+		}
 		pmb$clearBowCharge();
 	}
 
@@ -302,13 +362,6 @@ public abstract class PmbMobBowMixin extends LivingEntity {
 	}
 
 	@Unique
-	private void pmb$consumeArrow() {
-		ItemStack stack = getOffhandItem();
-		stack.consume(1, this);
-		setItemInHand(InteractionHand.OFF_HAND, stack.isEmpty() ? ItemStack.EMPTY : stack.copy());
-	}
-
-	@Unique
 	private void pmb$faceBowTrajectory(Mob mob, LivingEntity target, PmbBowAiData bowAi, int mode) {
 		Vec3 velocity = mode == PMB_BOW_LINE
 				? pmb$lineVelocity(target, pmb$bowSpeed(bowAi.linePower()))
@@ -336,7 +389,8 @@ public abstract class PmbMobBowMixin extends LivingEntity {
 
 	@Unique
 	private void pmb$cancelBowCharge() {
-		if (isUsingItem() && getUsedItemHand() == InteractionHand.MAIN_HAND) stopUsingItem();
+		PmbSkillScheduler.of((Mob) (Object) this).movement().cancel("bow");
+		if (isUsingItem() && getUsedItemHand() == pmb$bowHand) stopUsingItem();
 		pmb$clearBowCharge();
 	}
 
@@ -345,5 +399,9 @@ public abstract class PmbMobBowMixin extends LivingEntity {
 		pmb$bowChargeMode = PMB_BOW_NONE;
 		pmb$bowChargeTicks = 0;
 		pmb$bowTarget = null;
+		pmb$bowAmmo = null;
+		pmb$bowHand = null;
+		if (pmb$bowLease != null && PmbSkillScheduler.of((Mob) (Object) this)
+				.release((Mob) (Object) this, "bow")) pmb$bowLease = null;
 	}
 }

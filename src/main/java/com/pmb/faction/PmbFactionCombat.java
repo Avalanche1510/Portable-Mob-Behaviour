@@ -1,11 +1,15 @@
 package com.pmb.faction;
 
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.tags.DamageTypeTags;
+import net.minecraft.tags.EntityTypeTags;
 import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.damagesource.DamageTypes;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.monster.breeze.Breeze;
 import net.minecraft.world.entity.player.Player;
 
 public final class PmbFactionCombat {
@@ -63,6 +67,7 @@ public final class PmbFactionCombat {
 			return;
 		}
 		PmbFactionSavedData data = PmbFactionSavedData.get(level.getServer());
+		applyWindChargeNeutralFallback(victim, attacker, source, data);
 		if (data.factions().values().stream().noneMatch(definition -> definition.rules().groupRevenge())) {
 			return;
 		}
@@ -84,5 +89,30 @@ public final class PmbFactionCombat {
 				}
 			}
 		}
+	}
+
+	private static void applyWindChargeNeutralFallback(LivingEntity victim, LivingEntity attacker,
+			DamageSource source, PmbFactionSavedData data) {
+		if (!(victim instanceof Mob mob)) {
+			return;
+		}
+		String factionId = PmbFactionResolver.factionOf(victim);
+		PmbFactionDefinition definition = factionId == null ? null : data.get(factionId);
+		if (definition == null || !shouldApplyWindChargeNeutralFallback(true,
+				source.is(DamageTypes.WIND_CHARGE),
+				victim.is(EntityTypeTags.NO_ANGER_FROM_WIND_CHARGE),
+				source.is(DamageTypeTags.NO_ANGER),
+				attacker instanceof Breeze,
+				definition.vanillaCompatRules().breeze().windChargeNoAnger())) {
+			return;
+		}
+		PmbFactionAi.authorizeNeutralRetaliation(mob, attacker);
+	}
+
+	static boolean shouldApplyWindChargeNeutralFallback(boolean hasResponsibleAttacker, boolean windCharge,
+			boolean victimHasWindChargeNoAnger, boolean genericNoAnger, boolean breezeAttacker,
+			boolean preservesBreezeNoAnger) {
+		return hasResponsibleAttacker && windCharge && victimHasWindChargeNoAnger && !genericNoAnger
+				&& (!breezeAttacker || !preservesBreezeNoAnger);
 	}
 }

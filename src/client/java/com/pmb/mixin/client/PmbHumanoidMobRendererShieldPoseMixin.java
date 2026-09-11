@@ -31,7 +31,7 @@ public class PmbHumanoidMobRendererShieldPoseMixin {
 		}
 
 		ItemStack stack = mob.getItemHeldByArm(arm);
-		if (mob.getUsedItemHand() == InteractionHand.MAIN_HAND && stack.is(Items.BOW)) {
+		if (stack.is(Items.BOW)) {
 			info.setReturnValue(HumanoidModel.ArmPose.BOW_AND_ARROW);
 			return;
 		}

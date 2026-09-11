@@ -11,6 +11,70 @@ Year.Month.Day-No.
 
 ## Record
 
+### 26.9.10-1
+
+Unified all five skills so an eligible check starts its cooldown and rolls its chance before entering resource arbitration. A failed chance therefore claims no hand, USE_ITEM, LOOK, or SMASH resource; a successful roll keeps its cooldown even if it later loses resource arbitration or fails final execution revalidation, without caching or retrying. Chance values at 0.0 now fail deterministically and values at 1.0 succeed deterministically without consuming a random draw. Bow retains no same-tick mode fallback, while wind_charge retains throw fallback only when bounce's chance fails; a successful bounce roll never falls back after a resource or final-validation failure.
+
+Ender-pearl final target, range, visibility, water, and ballistic validation now produces a short-lived launch plan before any permanent equipment exchange. An invalid plan keeps the already-started cooldown but does not move or consume a pearl; a valid plan acquires the resolved item and then performs the release.
+
+Wind-charge bounce now applies its existing grounded termination boundary before sustained resource claims and before pose/look writes. The first two grounded launch ticks retain their original grace, but the first terminating tick releases LOOK immediately instead of making an otherwise valid bow or pearl check lose resources and consume a full randomized cooldown.
+
+Added `randomCooldownBias` to shield, wind_charge, mace, bow, and ender_pearl. It is an integer from 0 through 1200, defaults to 20, and adds an independently drawn inclusive uniform integer from 0 through its value whenever an active check cooldown starts. Bow line/arc and wind-charge throw/bounce share their skill's setting but draw independently. It affects only active-check cooldowns, not shield disable/vulnerability, use or charge duration, airborne tracking, or temporary look duration. Old data without the field defaults to 20, and saved runtime cooldown validation now accepts the configured base plus bias.
+
+Added `VanillaCompatRules.breeze.windChargeNoAnger`, defaulting to `1b`. Vanilla deliberately omits `lastHurtByMob` when wind-charge damage hits an entity in `#minecraft:no_anger_from_wind_charge`; PMB now uses the accepted damage source's existing living owner as a narrow neutral-retaliation fallback. With the compatibility rule enabled, Breeze-owned wind charges retain vanilla no-anger behavior, while wind charges from other valid living owners may make a neutral Faction mob retaliate. At `0b`, a valid Breeze owner may also trigger that retaliation.
+
+The fallback applies only to valid Faction-member mobs in the vanilla no-anger entity tag, only after damage succeeds, and still requires a living attackable owner inside the victim's FOLLOW_RANGE whose real-time Faction attitude is neutral. The general `#minecraft:no_anger` damage-type tag remains authoritative and disables this fallback without changing the existing group-revenge path. It does not alter ownerless damage, non-Faction behavior, group revenge, friendly fire, other attitudes, goat rams, status effects, or later fire damage. Added `/pmb faction compat set breeze windChargeNoAnger <faction> <boolean>` and included the value in faction info; old SavedData defaults the new group and field to enabled.
+
+### 26.9.8-2
+
+Parameter completion now requires an opening `[` before suggesting fields, avoiding bare parameter suggestions at the empty argument entry.
+
+Bow positioning now runs only while a successful bow action is actually drawing. Cooldown, failed chance, missing ammunition and action-resource conflicts no longer submit bow locomotion or intercept vanilla navigation or movement control; whether the mob actually pursues still depends on an applicable vanilla Goal or Brain behavior remaining able to run. This prevents wind charge from leaving a bow user strafing without turning, attacking or shooting while LOOK is unavailable.
+
+Added preferredHand with main, off, main-enforce and off-enforce values and enum completion. Bow defaults to main; shield, wind_charge and ender_pearl default to off. Mace does not expose the field. Hand selection reads a frozen snapshot of ongoing PMB hand ownership only; static equipment is exchangeable. Plain values may fall back, enforced values never do, and same-tick losers never retry another hand.
+
+Compatible destination-hand equipment now takes precedence over FetchSource. Otherwise the first available ordered source permanently exchanges with that hand. Busy source/destination hands cannot be swapped. Cross-hand exchanges reserve both hands for the swap tick; continued actions bind only their actual hand. All five skills, including mace, retain the final layout after completion, cancellation, loading, conversion and death. ActionBinding tracks action identity without restoration. Displaced equipment/ammunition may be stranded outside configured ranges; future checks use the real layout. Final positions determine drop rules. Old PmbSwapJournal data gets one safe load recovery; new exchanges write no journal.
+
+Removed NAVIGATION from exclusive skill resources. Independent movement intentions prioritize vulnerability HARD_STOP, retreat, active-skill movement, passive stance, then vanilla movement. One LOCOMOTION wins; wind airborne tracking adds VELOCITY_MODIFIER while preserving vertical velocity. Losing movement never cancels a skill. Bow draw reserves its actual hand, USE_ITEM and LOOK, and only an active draw submits bow locomotion. Intents are revalidated before the next MoveControl phase and interception follows the actual movement winner.
+
+Split bow's lineRange into canonical lineMinRange and lineMaxRange. The closed shooting interval defaults to 0.0f through 16.0f; lineMaxRange is clamped to at least lineMinRange. Targets below lineMinRange cannot start or continue line fire. Data written with the temporary minLineRange/maxLineRange names remains readable when neither canonical field exists. Older lineRange data is read as a 0.0f-to-legacy-max interval only when neither canonical nor temporary field exists; subsequent saves use only the canonical fields.
+
+Renamed the five skills' externally written source-list field from `activationSources` to `FetchSource`. Commands, defaults, saved output, README, and complete documentation now use the new canonical spelling. Existing data with the old field remains readable; if both fields exist, `FetchSource` wins and only it is written back.
+
+Bow now has its own optional ordered `AmmoSource`, using the same hand and one-based PMB-inventory location syntax. It scans real supported arrows only and never moves or exchanges them; FetchSource resolves the bow alone and cannot restrict ammunition. Omitting AmmoSource preserves the prior hands-first then lowest-enabled-PMB-inventory scan. An explicit empty or invalid list has no real ammunition source, so `doConsume:1b` cannot fire while `doConsume:0b` retains the unlimited normal-arrow fallback. A previously selected hand arrow follows a permanent weapon swap into its actual new hand or inventory slot for that action. The next action scans AmmoSource again.
+
+When `doConsume:1b` exhausts the last supported arrow, an inactive bow no longer suppresses ordinary melee goals, direct melee damage, or movement control. An active draw retains ownership until its binding is released. Vanilla ranged-bow suppression remains active for a configured resolvable bow, preventing native skeleton bow AI from bypassing PMB ammunition rules.
+
+### 26.9.8-1
+
+Added the permission-level-2 `/pmb skills <targets> <skill> <mode>` testing command for shield, wind_charge, mace, bow, and ender_pearl. Its schema-aware bracket argument completes unused parameter names and typed values, validates canonical case-sensitive fields, strict NBT-style booleans, integer and float syntax, quoted enums and activation-source lists, field ranges, and final cross-field relationships.
+
+Added atomic `append`, `insert`, `modify`, and `delete` operations plus single-target `get`. Append creates only a missing node, insert adds only absent explicit fields, modify changes only existing explicit fields, keyed delete restores defaults, `delete *` retains an empty disabled node, and `delete []` removes the node. Every selected entity must be a Mob and the complete batch is validated before any mutation.
+
+Changed all five skill compounds to sparse persistence with explicit canonical-field tracking derived from the fields actually present in NBT. Empty and partial nodes survive saving, direct summon/data edits remain meaningful, existing full compounds retain all present fields as explicit, and supported legacy aliases map to canonical presence without entering the command schema.
+
+Successful writes immediately cancel only the selected skill, restore its temporary item lease, clear its runtime action and cooldown state, and refresh shield toughness for shield edits. Updated both complete documents and READMEs with command syntax, completion and validation rules, persistence semantics, and examples; also added ender_pearl to the previously incomplete implemented-skill list.
+
+### 26.9.4-2
+
+Prevented combat and evasive ender-pearl throws when the launch point is submerged in water, while retaining shallow-water use above the fluid surface. Replaced the 300-tick trajectory cutoff with the equivalent discrete air trajectory and restricted moving-target prediction to horizontal motion. Valid geometry with insufficient maxThrowPower still fires at the cap; impossible geometry, near-zero horizontal distance, or invalid numerical solutions now skip the throw with normal cooldown and no pearl consumption. Failed releases do not start throw feedback or its continued look state, and temporary item leases are always restored.
+
+Added the default-true `requireEyeSight` boolean to bow and ender_pearl. With `1b`, their existing line-of-sight gates remain required; with `0b`, only those gates are skipped, while target validation, ranges, cooldowns, chance checks, items, and all other skill behavior remain unchanged.
+
+Fixed `requireEyeSight:0b` for original vanilla TargetGoal continuation. It may retain only an already acquired `mob.getTarget()` through obstruction, only inside FOLLOW_RANGE and the enabled bow or combat-pearl range, with an applicable activation source resolving a bow to the main hand or a pearl to either hand; pearl also requires throwChance above 0.0. Initial target discovery remains line-of-sight limited. Faction, Brain and evasive paths, general melee, and other skills remain unchanged.
+
+Added one server-side scheduler for shield, bow, mace, wind charge, and ender pearl. It derives the unique `retreat`, `combat`, or `idle` strategy from Faction avoidance and the attack target, cancels sustained actions when the authoritative strategy or target changes, and blocks actions during death, NoAI, or shield-break vulnerability. The five independent Mob tick injections were replaced by this single top-level execution point.
+
+Added conflict categories, fixed skill ranks, and concrete resources. Combat uses `main > off > throw > food > block`, retreat uses `throw > off > food > main > block`, and idle uses `block > food > off > main > throw`. Mace ranks over bow and ender pearl over wind charge when tied. At this stage, a losing ready candidate ended its normal check window without rolling chance or moving an item; this ordering was superseded by the pre-claim chance flow in `26.9.10-1`. Each physical hand performs at most one PMB action per tick. Wind bounce retains its bounce-first and failed-bounce fall-through behavior, and continued flight uses `LOOK + NAVIGATION`, never `SMASH` or a released hand.
+
+Added ordered `FetchSource` to all five skills. It accepts `mainhand`, `offhand`, `inventory`, one-based slots such as `inventory:3`, and overlapping inclusive ranges such as `inventory:1..9`. Omission preserves old hand requirements; an explicitly invalid list cannot activate. Inventory core items are atomically swapped into the required hand and safely restored after completion or cancellation.
+
+Added Mob-only `PmbInventory` with `Slots` `[0,27]`, `DropChance` `[0.0f,1.0f]`, and one-based `Items`. Capacity reduction merges or moves high-slot contents into enabled low slots and immediately drops full remainders. Every slot rolls independently for its full stack on death; `doMobLoot:false` suppresses these drops. With `CanPickUpLoot:1b` and `mobGriefing:true`, vanilla equipment and species pickup runs first, then remaining nearby items merge into PMB storage.
+
+Bow ammunition now resolves supported stacks from hands first, then enabled PMB slots from low to high, without occupying another hand. Non-consuming mode retains unlimited normal-arrow fallback and can use real special arrows without consuming them; consuming mode removes one item from its actual source only after release.
+
+Skill-check cooldowns now persist with save world time, while sustained actions do not resume after loading. A private minimal swap journal rolls back intact temporary swaps without overwriting externally changed slots. Death restores temporary equipment before inventory drops, and Mob conversion preserves PMB skill configuration, remaining cooldowns, and the extra inventory.
+
 ### 26.9.4-1
 Fixed overrideTeamRules not fully replacing vanilla team relationships. A Faction member with this rule enabled now resolves vanilla alliance against any LivingEntity from the source faction's directional attitude instead of requiring both entities to already share a team. Player friendly-fire checks are also delegated to Faction rules whenever either participant belongs to a valid Faction with overrideTeamRules enabled, then use the victim faction's allowFriendlyFire and member/allied relationship to decide whether damage is allowed.
 
@@ -99,7 +163,7 @@ Added enable, doConsume, and modePriority plus independent range, cooldown, shoo
 
 Added mobileWhileShooting, lineSafeDistance, and arcSafeDistance. Inside the current mode's SafeDistance, the shooter stops melee navigation and retreats while aiming regardless of mobileWhileShooting. Outside the safe distance but still inside the mode range, mobileWhileShooting controls skeleton-like randomized forward, backward, and sideways strafing.
 
-line can be checked at distances no greater than lineRange and uses linePower, moving-target lead, and light gravity compensation. arc can be checked from arcMinRange through arcMaxRange, uses arcAngle as a fixed angle, and numerically simulates vanilla arrow drag of 0.99 and gravity of 0.05 to binary-search the required initial speed, limited by arcMaxPower.
+line can be checked from lineMinRange through lineMaxRange and uses linePower, moving-target lead, and light gravity compensation. arc can be checked from arcMinRange through arcMaxRange, uses arcAngle as a fixed angle, and numerically simulates vanilla arrow drag of 0.99 and gravity of 0.05 to binary-search the required initial speed, limited by arcMaxPower.
 
 range controls only whether shooting behaviour starts and does not guarantee physical reach. If arc requires more than arcMaxPower or has no complete solution, it still fires at the configured angle and power limit and may miss.
 

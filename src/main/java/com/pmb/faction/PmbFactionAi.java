@@ -1,5 +1,8 @@
 package com.pmb.faction;
 
+import com.pmb.ai.PmbSkillScheduler;
+import com.pmb.ai.PmbMovementController;
+
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.LivingEntity;
@@ -209,6 +212,36 @@ public final class PmbFactionAi {
 		state.pmb$setFactionGroupRevenge(true);
 	}
 
+	public static void authorizeNeutralRetaliation(Mob mob, LivingEntity attacker) {
+		if (!(mob.level() instanceof ServerLevel level) || !isCombatTargetable(attacker)) {
+			return;
+		}
+		PmbFactionSavedData data = PmbFactionSavedData.get(level.getServer());
+		String factionId = PmbFactionResolver.factionOf(mob);
+		if (factionId == null || data.get(factionId) == null) {
+			return;
+		}
+		double followRange = Math.max(0.0D, mob.getAttributeValue(Attributes.FOLLOW_RANGE));
+		if (!isInRange(mob, attacker, followRange)
+				|| PmbFactionResolver.attitude(data, mob, attacker) != PmbFactionAttitude.NEUTRAL
+				|| preservesPiglinAvoidanceAgainst(mob, attacker)) {
+			return;
+		}
+
+		PmbFactionMobState state = (PmbFactionMobState) mob;
+		LivingEntity previousAvoid = state.pmb$getFactionAvoidTarget();
+		LivingEntity previousCombat = state.pmb$getFactionCombatTarget();
+		boolean previousGroupRevenge = state.pmb$isFactionGroupRevenge();
+		state.pmb$setFactionAvoidTarget(null);
+		state.pmb$setFactionCombatTarget(attacker);
+		state.pmb$setFactionGroupRevenge(false);
+		if (!mob.canAttack(attacker)) {
+			state.pmb$setFactionAvoidTarget(previousAvoid);
+			state.pmb$setFactionCombatTarget(previousCombat);
+			state.pmb$setFactionGroupRevenge(previousGroupRevenge);
+		}
+	}
+
 	public static LivingEntity factionCombatTarget(Mob mob) {
 		return ((PmbFactionMobState) mob).pmb$getFactionCombatTarget();
 	}
@@ -331,14 +364,20 @@ public final class PmbFactionAi {
 				mob.getBrain().setMemory(MemoryModuleType.AVOID_TARGET, avoid);
 			}
 			state.pmb$setFactionAvoiding(true);
-			if (!navigationMovesAway(mob, avoid)
-					&& (afterVanillaAi || mob.tickCount % FLEE_REPATH_INTERVAL == 0
-							|| mob.getNavigation().isDone())) {
-				navigateAway(mob, avoid, definition.rules().evasiveSpeedMultiplier());
-			}
+			PmbSkillScheduler.of(mob).movement().submit(mob, "faction_retreat",
+					PmbMovementController.Type.LOCOMOTION, PmbMovementController.Tier.RETREAT,
+					PmbSkillScheduler.Category.MAIN, 0,
+					() -> mob.isAlive() && !mob.isNoAi() && state.pmb$getFactionAvoidTarget() == avoid
+							&& avoid.isAlive() && avoid.level() == mob.level()
+							&& mob.distanceToSqr(avoid) <= Math.pow(mob.getAttributeValue(Attributes.FOLLOW_RANGE), 2),
+					() -> {
+						if (!navigationMovesAway(mob, avoid))
+							navigateAway(mob, avoid, definition.rules().evasiveSpeedMultiplier());
+					});
 			return;
 		}
 
+		PmbSkillScheduler.of(mob).movement().cancel("faction_retreat");
 		if (state.pmb$wasFactionAvoiding() && !afterVanillaAi) {
 			mob.getBrain().eraseMemory(MemoryModuleType.AVOID_TARGET);
 			mob.getNavigation().stop();

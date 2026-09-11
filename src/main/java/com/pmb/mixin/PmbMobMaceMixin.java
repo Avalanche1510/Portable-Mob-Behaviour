@@ -3,6 +3,11 @@ package com.pmb.mixin;
 import com.pmb.ai.PmbAiHolder;
 import com.pmb.ai.PmbMaceAiData;
 import com.pmb.ai.PmbShieldAiData;
+import com.pmb.ai.PmbSkillHooks;
+import com.pmb.ai.PmbSkillItemAccess;
+import com.pmb.ai.PmbSkillScheduler;
+import com.pmb.ai.PmbSkillTiming;
+import java.util.List;
 import net.minecraft.commands.arguments.EntityAnchorArgument;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.InteractionHand;
@@ -22,7 +27,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 @Mixin(Mob.class)
-public abstract class PmbMobMaceMixin extends LivingEntity {
+public abstract class PmbMobMaceMixin extends LivingEntity implements PmbSkillHooks.Mace {
 	@Unique
 	private boolean pmb$performingMaceSmash;
 
@@ -34,14 +39,17 @@ public abstract class PmbMobMaceMixin extends LivingEntity {
 	private void pmb$preventUnscheduledFallingMaceAttack(ServerLevel level, Entity target,
 			CallbackInfoReturnable<Boolean> info) {
 		PmbMaceAiData maceAi = ((PmbAiHolder) this).pmb$getAiData().mace();
-		if (!pmb$performingMaceSmash && maceAi.isEnabled() && getMainHandItem().is(Items.MACE)
+		if (!pmb$performingMaceSmash && maceAi.isEnabled()
+				&& PmbSkillItemAccess.resolveForRequiredHand((Mob) (Object) this, maceAi.fetchSource(),
+						List.of(InteractionHand.MAIN_HAND), stack -> stack.is(Items.MACE),
+						InteractionHand.MAIN_HAND) != null
 				&& pmb$isFallingForMaceSmash()) {
 			info.setReturnValue(false);
 		}
 	}
 
-	@Inject(method = "tick", at = @At("TAIL"))
-	private void pmb$tickMaceAi(CallbackInfo info) {
+	@Override
+	public void pmb$tickMaceSkill() {
 		if (!(level() instanceof ServerLevel serverLevel)) {
 			return;
 		}
@@ -52,10 +60,14 @@ public abstract class PmbMobMaceMixin extends LivingEntity {
 			pmb$performingMaceSmash = false;
 			return;
 		}
+		PmbSkillScheduler scheduler = PmbSkillScheduler.of(mob);
+		if (scheduler.hasBinding("mace")) {
+			scheduler.release(mob, "mace");
+			if (scheduler.hasBinding("mace")) return;
+		}
 		maceAi.tickCooldown();
 		PmbShieldAiData shieldAi = ((PmbAiHolder) this).pmb$getAiData().shield();
-		if (!maceAi.isEnabled() || mob.isNoAi() || shieldAi.isVulnerable()
-				|| !getMainHandItem().is(Items.MACE) || !pmb$isFallingForMaceSmash()) {
+		if (!maceAi.isEnabled() || mob.isNoAi() || shieldAi.isVulnerable() || !pmb$isFallingForMaceSmash()) {
 			return;
 		}
 
@@ -69,20 +81,45 @@ public abstract class PmbMobMaceMixin extends LivingEntity {
 			return;
 		}
 
-		maceAi.resetSmashCooldown();
-		if (getRandom().nextFloat() > maceAi.hitChance()) {
-			return;
-		}
-
-		pmb$faceMaceTarget(mob, target);
-		swing(InteractionHand.MAIN_HAND, true);
-		pmb$performingMaceSmash = true;
-		try {
-			mob.doHurtTarget(serverLevel, target);
-		} finally {
-			pmb$performingMaceSmash = false;
-		}
+		PmbSkillItemAccess.Resolved item = PmbSkillItemAccess.resolveForRequiredHand(mob,
+				maceAi.fetchSource(), List.of(InteractionHand.MAIN_HAND), stack -> stack.is(Items.MACE),
+				InteractionHand.MAIN_HAND);
+		if (item == null) return;
+		PmbSkillScheduler.Resource[] resources = item.transfer() == PmbSkillItemAccess.Transfer.HAND_SWAP
+				? new PmbSkillScheduler.Resource[] {PmbSkillScheduler.Resource.MAIN_HAND,
+						PmbSkillScheduler.Resource.OFF_HAND, PmbSkillScheduler.Resource.SMASH}
+				: new PmbSkillScheduler.Resource[] {PmbSkillScheduler.Resource.MAIN_HAND,
+						PmbSkillScheduler.Resource.SMASH};
+		PmbSkillScheduler.of(mob).offer("mace", PmbSkillScheduler.Category.MAIN, 20,
+				() -> {
+					maceAi.resetSmashCooldown(getRandom());
+					return PmbSkillTiming.passesChance(getRandom(), maceAi.hitChance());
+				}, () -> {
+					if (!isAlive() || mob.isNoAi() || !pmb$isFallingForMaceSmash()
+							|| !target.isAlive() || mob.getTarget() != target || !mob.canAttack(target)
+							|| !hasLineOfSight(target) || distanceToSqr(target) > range * range) return;
+					PmbSkillItemAccess.ActionBinding lease = PmbSkillItemAccess.acquire(mob, item);
+					if (lease == null) return;
+					if (!scheduler.bind("mace", lease)) {
+						return;
+					}
+					pmb$faceMaceTarget(mob, target);
+					swing(InteractionHand.MAIN_HAND, true);
+					pmb$performingMaceSmash = true;
+					try { mob.doHurtTarget(serverLevel, target); }
+					finally {
+						pmb$performingMaceSmash = false;
+						lease.authorizeAction(mob);
+						scheduler.release(mob, "mace");
+					}
+				}, resources);
 	}
+
+	@Override
+	public void pmb$cancelMaceSkill() { pmb$performingMaceSmash = false; }
+
+	@Override
+	public boolean pmb$isPerformingMaceSmash() { return pmb$performingMaceSmash; }
 
 	@Unique
 	private boolean pmb$isFallingForMaceSmash() {

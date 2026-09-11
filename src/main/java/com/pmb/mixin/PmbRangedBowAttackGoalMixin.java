@@ -1,12 +1,12 @@
 package com.pmb.mixin;
 
-import com.pmb.ai.PmbAiHolder;
+import com.pmb.ai.PmbSkillItemAccess;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.ai.goal.RangedBowAttackGoal;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.monster.RangedAttackMob;
-import net.minecraft.world.item.Items;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Redirect;
@@ -34,7 +34,6 @@ public class PmbRangedBowAttackGoalMixin {
 	}
 
 	private static boolean pmb$usesPmbBowAi(LivingEntity entity) {
-		return entity instanceof PmbAiHolder holder && holder.pmb$getAiData().bow().isEnabled()
-				&& entity.getMainHandItem().is(Items.BOW);
+		return entity instanceof Mob mob && PmbSkillItemAccess.canManageBow(mob);
 	}
 }

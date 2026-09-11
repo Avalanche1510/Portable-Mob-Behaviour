@@ -1,6 +1,8 @@
 package com.pmb.ai;
 
 import java.util.Optional;
+import java.util.LinkedHashSet;
+import java.util.Set;
 
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
@@ -11,7 +13,7 @@ import static com.pmb.ai.PmbAiNbtReader.getFloatOr;
 import static com.pmb.ai.PmbAiNbtReader.getIntOr;
 import static com.pmb.ai.PmbAiNbtReader.hasAnyNumericField;
 
-public class PmbShieldAiData {
+public class PmbShieldAiData implements PmbSkillConfigData {
 	public static final String TAG = "shield";
 
 	private static final float DEFAULT_RANGE = 8.0F;
@@ -34,12 +36,16 @@ public class PmbShieldAiData {
 	private static final float MAX_DISABLE_KB_MULTIPLIER = 100.0F;
 
 	private boolean configured;
+	private final Set<String> explicitFields = new LinkedHashSet<>();
+	private PmbPreferredHand preferredHand = PmbPreferredHand.OFF;
+	private final PmbActivationSources fetchSource = new PmbActivationSources();
 	private boolean enabled;
 	private float range = DEFAULT_RANGE;
 	private float chance = DEFAULT_CHANCE;
 	private int minUseTicks = DEFAULT_MIN_USE_TICKS;
 	private int maxUseTicks = DEFAULT_MAX_USE_TICKS;
 	private int cooldownTicks = DEFAULT_COOLDOWN_TICKS;
+	private int randomCooldownBias = PmbSkillTiming.DEFAULT_RANDOM_COOLDOWN_BIAS;
 	private float blockingAngle = DEFAULT_BLOCKING_ANGLE;
 	private int axeDisableCooldownTicks = DEFAULT_AXE_DISABLE_COOLDOWN_TICKS;
 	private int shieldToughness = DEFAULT_SHIELD_TOUGHNESS;
@@ -57,10 +63,13 @@ public class PmbShieldAiData {
 	public boolean isConfigured() {
 		return configured;
 	}
+	@Override public Set<String> explicitFields() { return new LinkedHashSet<>(explicitFields); }
 
 	public boolean isEnabled() {
 		return enabled;
 	}
+	public PmbPreferredHand preferredHand() { return preferredHand; }
+	public PmbActivationSources fetchSource() { return fetchSource; }
 
 	public boolean canUse() {
 		return configured && enabled && disabledCooldown <= 0;
@@ -85,6 +94,7 @@ public class PmbShieldAiData {
 	public int cooldownTicks() {
 		return cooldownTicks;
 	}
+	public int randomCooldownBias() { return randomCooldownBias; }
 
 	public float blockingAngle() {
 		return blockingAngle;
@@ -136,6 +146,9 @@ public class PmbShieldAiData {
 			resetShieldToughness();
 		}
 	}
+	public void resetCooldown(net.minecraft.util.RandomSource random) {
+		setCooldown(PmbSkillTiming.cooldown(random, cooldownTicks, randomCooldownBias));
+	}
 
 	public int disabledCooldown() {
 		return disabledCooldown;
@@ -162,6 +175,12 @@ public class PmbShieldAiData {
 				resetShieldToughness();
 			}
 		}
+	}
+	int cooldownRemaining() { return cooldown; }
+	int disabledCooldownRemaining() { return disabledCooldown; }
+	void restoreCooldowns(int elapsed, int cooldownRemaining, int disabledRemaining) {
+		cooldown = Math.max(0, Math.min(cooldownTicks + randomCooldownBias, Math.max(0, cooldownRemaining)) - elapsed);
+		disabledCooldown = Math.max(0, Math.min(axeDisableCooldownTicks, Math.max(0, disabledRemaining)) - elapsed);
 	}
 
 	public int vulnerableTicks() {
@@ -204,30 +223,41 @@ public class PmbShieldAiData {
 	}
 
 	public void write(ValueOutput output) {
-		output.putBoolean("enable", enabled);
-		output.putFloat("range", range);
-		output.putFloat("shieldChance", chance);
-		output.putInt("minUseTicks", minUseTicks);
-		output.putInt("maxUseTicks", maxUseTicks);
-		output.putInt("cooldownTicks", cooldownTicks);
-		output.putFloat("blockingAngle", blockingAngle);
-		output.putInt("axeDisableCooldownTicks", axeDisableCooldownTicks);
-		output.putInt("shieldToughness", shieldToughness);
-		output.putInt("critToughnessDamage", critToughnessDamage);
-		output.putInt("disableVulnerTicks", disableVulnerTicks);
-		output.putFloat("vulnerDamageMultiplier", vulnerDamageMultiplier);
-		output.putFloat("disableKBMultiplier", disableKbMultiplier);
-		output.putFloat("speedReduction", speedReduction);
+		if (explicitFields.contains("preferredHand")) output.putString("preferredHand", preferredHand.value());
+		if (explicitFields.contains("FetchSource")) fetchSource.write(output);
+		if (explicitFields.contains("enable")) output.putBoolean("enable", enabled);
+		if (explicitFields.contains("range")) output.putFloat("range", range);
+		if (explicitFields.contains("shieldChance")) output.putFloat("shieldChance", chance);
+		if (explicitFields.contains("minUseTicks")) output.putInt("minUseTicks", minUseTicks);
+		if (explicitFields.contains("maxUseTicks")) output.putInt("maxUseTicks", maxUseTicks);
+		if (explicitFields.contains("cooldownTicks")) output.putInt("cooldownTicks", cooldownTicks);
+		if (explicitFields.contains("randomCooldownBias")) output.putInt("randomCooldownBias", randomCooldownBias);
+		if (explicitFields.contains("blockingAngle")) output.putFloat("blockingAngle", blockingAngle);
+		if (explicitFields.contains("axeDisableCooldownTicks")) output.putInt("axeDisableCooldownTicks", axeDisableCooldownTicks);
+		if (explicitFields.contains("shieldToughness")) output.putInt("shieldToughness", shieldToughness);
+		if (explicitFields.contains("critToughnessDamage")) output.putInt("critToughnessDamage", critToughnessDamage);
+		if (explicitFields.contains("disableVulnerTicks")) output.putInt("disableVulnerTicks", disableVulnerTicks);
+		if (explicitFields.contains("vulnerDamageMultiplier")) output.putFloat("vulnerDamageMultiplier", vulnerDamageMultiplier);
+		if (explicitFields.contains("disableKBMultiplier")) output.putFloat("disableKBMultiplier", disableKbMultiplier);
+		if (explicitFields.contains("speedReduction")) output.putFloat("speedReduction", speedReduction);
+	}
+
+	@Override public void resetRuntime() {
+		useTicks = 0; cooldown = 0; disabledCooldown = 0; vulnerableTicks = 0; resetShieldToughness();
 	}
 
 	public void clear() {
+		preferredHand = PmbPreferredHand.OFF;
+		fetchSource.clear();
 		configured = false;
+		explicitFields.clear();
 		enabled = false;
 		range = DEFAULT_RANGE;
 		chance = DEFAULT_CHANCE;
 		minUseTicks = DEFAULT_MIN_USE_TICKS;
 		maxUseTicks = DEFAULT_MAX_USE_TICKS;
 		cooldownTicks = DEFAULT_COOLDOWN_TICKS;
+		randomCooldownBias = PmbSkillTiming.DEFAULT_RANDOM_COOLDOWN_BIAS;
 		blockingAngle = DEFAULT_BLOCKING_ANGLE;
 		axeDisableCooldownTicks = DEFAULT_AXE_DISABLE_COOLDOWN_TICKS;
 		shieldToughness = DEFAULT_SHIELD_TOUGHNESS;
@@ -244,17 +274,23 @@ public class PmbShieldAiData {
 	}
 
 	private void readNested(ValueInput shieldInput) {
-		if (!hasAnyNumericField(shieldInput, "enable", "range", "shieldRange", "chance", "shieldChance",
-				"minUseTicks", "shieldMinUseTicks", "maxUseTicks", "shieldMaxUseTicks", "cooldownTicks",
-				"shieldCooldownTicks", "blockingAngle", "axeDisableCooldownTicks", "shieldToughness",
-				"critToughnessDamage", "disableVulnerTicks", "vulnerDamageMultiplier", "disableKBMultiplier",
-				"disableKbMultiplier", "speedReduction", "shieldSpeedReduction", "movementSpeedReduction",
-				"speedReductionPercent")) {
-			clear();
-			return;
-		}
-
 		configured = true;
+		preferredHand = PmbPreferredHand.parse(shieldInput.getStringOr("preferredHand", ""), PmbPreferredHand.OFF);
+		fetchSource.read(shieldInput);
+		explicitFields.clear();
+		if (shieldInput.contains("preferredHand")) explicitFields.add("preferredHand");
+		if (fetchSource.isExplicit()) explicitFields.add("FetchSource");
+		mark(shieldInput, "enable", "enable");
+		mark(shieldInput, "range", "range", "shieldRange");
+		mark(shieldInput, "shieldChance", "shieldChance", "chance");
+		mark(shieldInput, "minUseTicks", "minUseTicks", "shieldMinUseTicks");
+		mark(shieldInput, "maxUseTicks", "maxUseTicks", "shieldMaxUseTicks");
+		mark(shieldInput, "cooldownTicks", "cooldownTicks", "shieldCooldownTicks");
+		mark(shieldInput, "randomCooldownBias", "randomCooldownBias");
+		for (String key : new String[] {"blockingAngle", "axeDisableCooldownTicks", "shieldToughness",
+				"critToughnessDamage", "disableVulnerTicks", "vulnerDamageMultiplier"}) mark(shieldInput, key, key);
+		mark(shieldInput, "disableKBMultiplier", "disableKBMultiplier", "disableKbMultiplier");
+		mark(shieldInput, "speedReduction", "speedReduction", "shieldSpeedReduction", "movementSpeedReduction", "speedReductionPercent");
 		enabled = getBooleanOr(shieldInput, "enable", false);
 		range = clamp(getFloatOr(shieldInput, DEFAULT_RANGE, "range", "shieldRange"), 0.0F, 64.0F);
 		chance = clamp(getFloatOr(shieldInput, DEFAULT_CHANCE, "shieldChance", "chance"), 0.0F, 1.0F);
@@ -264,6 +300,8 @@ public class PmbShieldAiData {
 				minUseTicks, MAX_USE_TICKS);
 		cooldownTicks = clamp(getIntOr(shieldInput, DEFAULT_COOLDOWN_TICKS, "cooldownTicks", "shieldCooldownTicks"),
 				0, 400);
+		randomCooldownBias = clamp(getIntOr(shieldInput, "randomCooldownBias",
+				PmbSkillTiming.DEFAULT_RANDOM_COOLDOWN_BIAS), 0, PmbSkillTiming.MAX_RANDOM_COOLDOWN_BIAS);
 		blockingAngle = clamp(getFloatOr(shieldInput, DEFAULT_BLOCKING_ANGLE, "blockingAngle"), 1.0F, 180.0F);
 		axeDisableCooldownTicks = clamp(getIntOr(shieldInput, DEFAULT_AXE_DISABLE_COOLDOWN_TICKS,
 				"axeDisableCooldownTicks"), 0, 600);
@@ -294,12 +332,23 @@ public class PmbShieldAiData {
 		}
 
 		configured = true;
+		preferredHand = PmbPreferredHand.OFF;
+		fetchSource.clear();
+		explicitFields.clear();
+		mark(aiInput, "enable", "shield");
+		mark(aiInput, "range", "shieldRange");
+		mark(aiInput, "shieldChance", "shieldChance");
+		mark(aiInput, "minUseTicks", "shieldMinUseTicks");
+		mark(aiInput, "maxUseTicks", "shieldMaxUseTicks");
+		mark(aiInput, "cooldownTicks", "shieldCooldownTicks");
+		mark(aiInput, "speedReduction", "shieldSpeedReduction", "speedReduction", "speedReductionPercent");
 		enabled = getBooleanOr(aiInput, "shield", false);
 		range = clamp(getFloatOr(aiInput, DEFAULT_RANGE, "shieldRange"), 0.0F, 64.0F);
 		chance = clamp(getFloatOr(aiInput, DEFAULT_CHANCE, "shieldChance"), 0.0F, 1.0F);
 		minUseTicks = clamp(getIntOr(aiInput, DEFAULT_MIN_USE_TICKS, "shieldMinUseTicks"), 1, MAX_USE_TICKS);
 		maxUseTicks = clamp(getIntOr(aiInput, DEFAULT_MAX_USE_TICKS, "shieldMaxUseTicks"), minUseTicks, MAX_USE_TICKS);
 		cooldownTicks = clamp(getIntOr(aiInput, DEFAULT_COOLDOWN_TICKS, "shieldCooldownTicks"), 0, 400);
+		randomCooldownBias = PmbSkillTiming.DEFAULT_RANDOM_COOLDOWN_BIAS;
 		blockingAngle = DEFAULT_BLOCKING_ANGLE;
 		axeDisableCooldownTicks = DEFAULT_AXE_DISABLE_COOLDOWN_TICKS;
 		shieldToughness = DEFAULT_SHIELD_TOUGHNESS;
@@ -313,6 +362,10 @@ public class PmbShieldAiData {
 		disabledCooldown = 0;
 		vulnerableTicks = 0;
 		resetShieldToughness();
+	}
+
+	private void mark(ValueInput input, String canonical, String... names) {
+		for (String name : names) if (PmbAiNbtReader.hasField(input, name)) { explicitFields.add(canonical); return; }
 	}
 
 	private static float readSpeedReduction(ValueInput input) {

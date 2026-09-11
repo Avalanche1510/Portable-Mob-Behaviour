@@ -3,6 +3,7 @@ package com.pmb;
 import com.pmb.network.PmbProtocolNetworking;
 import com.pmb.faction.PmbFactionCommands;
 import com.pmb.faction.PmbFactionSavedData;
+import com.pmb.command.PmbSkillsCommands;
 import net.fabricmc.api.ModInitializer;
 
 import net.minecraft.resources.Identifier;
@@ -23,6 +24,7 @@ public class PortableMobBehaviour implements ModInitializer {
 		PmbProtocolNetworking.initialize();
 		PmbFactionSavedData.initialize();
 		PmbFactionCommands.initialize();
+		PmbSkillsCommands.initialize();
 		LOGGER.info("Portable Mob Behaviour initialized.");
 	}
 

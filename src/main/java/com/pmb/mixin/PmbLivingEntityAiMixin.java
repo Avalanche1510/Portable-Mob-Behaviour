@@ -63,6 +63,7 @@ public class PmbLivingEntityAiMixin implements PmbAiHolder, PmbShieldVulnerableH
 	@Inject(method = "addAdditionalSaveData", at = @At("TAIL"))
 	private void pmb$writeAiData(ValueOutput output, CallbackInfo info) {
 		pmb$aiData.write(output);
+		pmb$aiData.writeRuntime(output, ((LivingEntity) (Object) this).level().getGameTime());
 		if (pmb$factionId != null) {
 			output.child("PmbFaction").putString("FactionName", pmb$factionId);
 		}
@@ -71,6 +72,7 @@ public class PmbLivingEntityAiMixin implements PmbAiHolder, PmbShieldVulnerableH
 	@Inject(method = "readAdditionalSaveData", at = @At("TAIL"))
 	private void pmb$readAiData(ValueInput input, CallbackInfo info) {
 		pmb$aiData.read(input);
+		pmb$aiData.readRuntime(input, ((LivingEntity) (Object) this).level().getGameTime());
 		pmb$factionId = input.child("PmbFaction")
 				.flatMap(value -> value.getString("FactionName"))
 				.filter(value -> !value.isBlank())
