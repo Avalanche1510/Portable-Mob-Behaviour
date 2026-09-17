@@ -38,12 +38,8 @@ public abstract class PmbMobMaceMixin extends LivingEntity implements PmbSkillHo
 	@Inject(method = "doHurtTarget", at = @At("HEAD"), cancellable = true)
 	private void pmb$preventUnscheduledFallingMaceAttack(ServerLevel level, Entity target,
 			CallbackInfoReturnable<Boolean> info) {
-		PmbMaceAiData maceAi = ((PmbAiHolder) this).pmb$getAiData().mace();
-		if (!pmb$performingMaceSmash && maceAi.isEnabled()
-				&& PmbSkillItemAccess.resolveForRequiredHand((Mob) (Object) this, maceAi.fetchSource(),
-						List.of(InteractionHand.MAIN_HAND), stack -> stack.is(Items.MACE),
-						InteractionHand.MAIN_HAND) != null
-				&& pmb$isFallingForMaceSmash()) {
+		if (!pmb$performingMaceSmash
+				&& PmbSkillItemAccess.shouldSuppressUnscheduledFallingMace((Mob) (Object) this)) {
 			info.setReturnValue(false);
 		}
 	}
@@ -90,7 +86,7 @@ public abstract class PmbMobMaceMixin extends LivingEntity implements PmbSkillHo
 						PmbSkillScheduler.Resource.OFF_HAND, PmbSkillScheduler.Resource.SMASH}
 				: new PmbSkillScheduler.Resource[] {PmbSkillScheduler.Resource.MAIN_HAND,
 						PmbSkillScheduler.Resource.SMASH};
-		PmbSkillScheduler.of(mob).offer("mace", PmbSkillScheduler.Category.MAIN, 20,
+		PmbSkillScheduler.of(mob).offer("mace", "smash", PmbSkillScheduler.Category.MAIN, 20,
 				() -> {
 					maceAi.resetSmashCooldown(getRandom());
 					return PmbSkillTiming.passesChance(getRandom(), maceAi.hitChance());
@@ -106,7 +102,10 @@ public abstract class PmbMobMaceMixin extends LivingEntity implements PmbSkillHo
 					pmb$faceMaceTarget(mob, target);
 					swing(InteractionHand.MAIN_HAND, true);
 					pmb$performingMaceSmash = true;
-					try { mob.doHurtTarget(serverLevel, target); }
+					try {
+						mob.doHurtTarget(serverLevel, target);
+						scheduler.markCurrentCandidateExecuted("mace");
+					}
 					finally {
 						pmb$performingMaceSmash = false;
 						lease.authorizeAction(mob);

@@ -30,4 +30,15 @@ public final class PmbProtocolPackets {
 			return TYPE;
 		}
 	}
+
+	public record SkillDebugRequest(int entityId) implements CustomPacketPayload {
+		public static final Type<SkillDebugRequest> TYPE = new Type<>(PortableMobBehaviour.id("skill_debug_request"));
+		public static final StreamCodec<FriendlyByteBuf, SkillDebugRequest> CODEC = StreamCodec.composite(
+				ByteBufCodecs.VAR_INT, SkillDebugRequest::entityId, SkillDebugRequest::new);
+
+		@Override
+		public Type<? extends CustomPacketPayload> type() {
+			return TYPE;
+		}
+	}
 }

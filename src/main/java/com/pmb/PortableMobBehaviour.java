@@ -1,6 +1,7 @@
 package com.pmb;
 
 import com.pmb.network.PmbProtocolNetworking;
+import com.pmb.network.PmbSkillDebugNetworking;
 import com.pmb.faction.PmbFactionCommands;
 import com.pmb.faction.PmbFactionSavedData;
 import com.pmb.command.PmbSkillsCommands;
@@ -22,6 +23,7 @@ public class PortableMobBehaviour implements ModInitializer {
 	@Override
 	public void onInitialize() {
 		PmbProtocolNetworking.initialize();
+		PmbSkillDebugNetworking.initialize();
 		PmbFactionSavedData.initialize();
 		PmbFactionCommands.initialize();
 		PmbSkillsCommands.initialize();

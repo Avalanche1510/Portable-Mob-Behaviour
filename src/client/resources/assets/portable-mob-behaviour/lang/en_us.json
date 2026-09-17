@@ -1,0 +1,22 @@
+{
+  "key.portable-mob-behaviour.skill_debug": "Print PMB Skill Debug Snapshot",
+  "debug.portable-mob-behaviour.title": "PMB SKILL DEBUG",
+  "debug.portable-mob-behaviour.entity": "ENTITY",
+  "debug.portable-mob-behaviour.snapshot": "SNAPSHOT",
+  "debug.portable-mob-behaviour.skills": "SKILLS",
+  "debug.portable-mob-behaviour.attempts": "LAST ATTEMPTS",
+  "debug.portable-mob-behaviour.resources": "RESOURCES",
+  "debug.portable-mob-behaviour.bindings": "BINDINGS",
+  "debug.portable-mob-behaviour.melee": "MELEE",
+  "debug.portable-mob-behaviour.context": "CONTEXT",
+  "debug.portable-mob-behaviour.skill.active": "ACTIVE",
+  "debug.portable-mob-behaviour.skill.ready": "READY",
+  "debug.portable-mob-behaviour.melee.suppressed": "SUPPRESSED",
+  "debug.portable-mob-behaviour.melee.available": "AVAILABLE",
+  "debug.portable-mob-behaviour.snapshot.unavailable": "unavailable (no completed configured PMB skill tick)",
+  "debug.portable-mob-behaviour.status.preclaim_rejected": "PRECLAIM REJECTED",
+  "debug.portable-mob-behaviour.status.resource_blocked": "RESOURCE BLOCKED",
+  "debug.portable-mob-behaviour.status.admitted": "ADMITTED",
+  "debug.portable-mob-behaviour.status.admitted.final_rejected": "FINAL REJECTED",
+  "debug.portable-mob-behaviour.status.admitted.executed": "EXECUTED"
+}

@@ -38,6 +38,10 @@ public final class PmbSkillItemAccess {
 		public boolean fromInventory() { return swap.transfer() == Transfer.INVENTORY_SWAP; }
 		public boolean matches(Mob mob) { return ItemStack.matches(mob.getItemInHand(hand()), actionSnapshot); }
 		public void authorizeAction(Mob mob) { actionSnapshot = mob.getItemInHand(hand()).copy(); }
+		String debugSummary() {
+			return "hand=" + hand() + ",transfer=" + transfer() + ",sourceHand=" + sourceHand()
+					+ ",inventorySlot=" + inventorySlot();
+		}
 	}
 	/** Both locations are validated before either write; no original-layout restoration is retained. */
 	public static ActionBinding acquire(Mob mob, Resolved resolved) {
@@ -142,21 +146,37 @@ public final class PmbSkillItemAccess {
 						stack -> stack.is(Items.BOW), bowAi.preferredHand(), "bow") != null);
 	}
 
-	/**
-	 * True while PMB bow use should suppress ordinary melee and movement control.
-	 * An active bow binding remains authoritative until it is released. Outside an
-	 * active action, consuming bow AI suppresses vanilla behavior only while a
-	 * configured bow and real supported ammunition are both available.
-	 */
+	/** Lightweight, side-effect-free gate for ordinary melee while a held bow can engage the current target. */
 	public static boolean shouldSuppressMeleeForBow(Mob mob) {
 		PmbBowAiData bowAi = ((PmbAiHolder) mob).pmb$getAiData().bow();
 		if (!bowAi.isEnabled()) return false;
-		if (PmbSkillScheduler.of(mob).hasBinding("bow")) return true;
-		if (resolvePreferred(mob, bowAi.fetchSource(),
-				List.of(InteractionHand.MAIN_HAND), stack -> stack.is(Items.BOW),
-				bowAi.preferredHand(), "bow") == null) return false;
-		return !bowAi.doConsume() || PmbAmmoAccess.find(mob, bowAi.ammoSource(),
+		LivingEntity target = mob.getTarget();
+		if (target == null || !target.isAlive() || target.level() != mob.level() || !mob.canAttack(target)) return false;
+		boolean heldBow = hasBowInAllowedHand(bowAi.preferredHand(),
+				mob.getMainHandItem().is(Items.BOW), mob.getOffhandItem().is(Items.BOW));
+		boolean ammunition = !bowAi.doConsume() || PmbAmmoAccess.find(mob, bowAi.ammoSource(),
 				((BowItem) Items.BOW).getAllSupportedProjectiles()) != null;
+		return shouldSuppressMeleeForBow(bowAi, true, mob.distanceTo(target), heldBow, ammunition);
+	}
+
+	static boolean shouldSuppressMeleeForBow(PmbBowAiData bowAi, boolean validTarget, double distance,
+			boolean heldBow, boolean ammunition) {
+		return bowAi.isEnabled() && validTarget && heldBow && bowAi.canShootAtDistance(distance)
+				&& (!bowAi.doConsume() || ammunition);
+	}
+
+	static boolean hasBowInAllowedHand(PmbPreferredHand preference, boolean mainHandBow, boolean offHandBow) {
+		if (!preference.enforced()) return mainHandBow || offHandBow;
+		return preference.hand() == InteractionHand.MAIN_HAND ? mainHandBow : offHandBow;
+	}
+
+	/** Shared read-only predicate for the real falling-mace melee interception and diagnostics. */
+	public static boolean shouldSuppressUnscheduledFallingMace(Mob mob) {
+		PmbMaceAiData maceAi = ((PmbAiHolder) mob).pmb$getAiData().mace();
+		return maceAi.isEnabled() && !mob.onGround() && mob.getDeltaMovement().y() < 0.0D
+				&& net.minecraft.world.item.MaceItem.canSmashAttack(mob)
+				&& resolveForRequiredHand(mob, maceAi.fetchSource(), List.of(InteractionHand.MAIN_HAND),
+						stack -> stack.is(Items.MACE), InteractionHand.MAIN_HAND) != null;
 	}
 
 }

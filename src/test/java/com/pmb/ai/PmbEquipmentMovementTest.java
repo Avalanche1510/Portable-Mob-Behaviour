@@ -7,7 +7,11 @@ import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import net.minecraft.ChatFormatting;
 import net.minecraft.SharedConstants;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.TextColor;
 import net.minecraft.server.Bootstrap;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.EntityType;
@@ -32,8 +36,11 @@ public final class PmbEquipmentMovementTest {
 					.set(net.minecraft.core.component.DataComponents.MAX_STACK_SIZE, 64).build());
 		testEquipment();
 		testMovement();
+		testDebugCaptureGate();
 		testSchema();
+		testBowMeleeSuppressionRules();
 		testSkillTimingAndPreClaim();
+		testSkillDebugDiagnostics();
 		testFactionCompatCodec();
 		testWindChargeNeutralFallbackPredicate();
 		testWindBounceLookOwnershipBoundary();
@@ -113,6 +120,7 @@ public final class PmbEquipmentMovementTest {
 	}
 	private static void testMovement() throws Exception {
 		Fixture mob = fixture(); var movement = mob.scheduler.movement(); List<String> trace = new ArrayList<>();
+		field(PmbBowAiData.class, "configured").setBoolean(mob.ai.bow(), true);
 		mob.tickCount = 20;
 		movement.apply(mob, mob.scheduler);
 		check(!movement.blocksVanillaBowMovement(mob), "no bow action leaves vanilla movement available");
@@ -121,6 +129,10 @@ public final class PmbEquipmentMovementTest {
 		offer(mob, "retreat", PmbMovementController.Type.LOCOMOTION, PmbMovementController.Tier.RETREAT, 0, trace);
 		movement.apply(mob, mob.scheduler);
 		check(trace.equals(List.of("retreat", "wind")), "retreat wins, velocity modifier remains additive");
+		check(movement.snapshot().tick() == mob.tickCount
+				&& "retreat".equals(movement.snapshot().locomotionOwner())
+				&& movement.snapshot().velocityModifierOwners().equals(List.of("wind")),
+				"movement debug snapshot records actual applied owners");
 		trace.clear();
 		offer(mob, "active", PmbMovementController.Type.LOCOMOTION, PmbMovementController.Tier.ACTIVE, 0, trace);
 		offer(mob, "passive", PmbMovementController.Type.LOCOMOTION, PmbMovementController.Tier.PASSIVE, 999, trace);
@@ -165,6 +177,176 @@ public final class PmbEquipmentMovementTest {
 		movement.cancel("bow");
 		check(!movement.blocksVanillaBowMovement(mob), "cancelled winner cannot retain movement interception");
 	}
+	private static void testSkillDebugDiagnostics() throws Exception {
+		PmbSkillScheduler scheduler = new PmbSkillScheduler();
+		prepareDebug(scheduler, true);
+		scheduler.claim("shield", PmbSkillScheduler.Resource.USE_ITEM);
+		scheduler.offer("bow", "line", PmbSkillScheduler.Category.MAIN, 10, () -> false, () -> {},
+				PmbSkillScheduler.Resource.MAIN_HAND);
+		scheduler.offer("pearl", "throw", PmbSkillScheduler.Category.THROW, 20, () -> true, () -> {},
+				PmbSkillScheduler.Resource.USE_ITEM);
+		scheduler.offer("shield", "raise", PmbSkillScheduler.Category.OFF, 10, () -> true, () -> {},
+				PmbSkillScheduler.Resource.OFF_HAND);
+		resolveCandidates(scheduler);
+		List<PmbSkillDebugSnapshot.CandidateAttempt> attempts = debugAttempts(scheduler);
+		check(attempts.stream().anyMatch(a -> a.label().equals("line")
+				&& a.status() == PmbSkillDebugSnapshot.AttemptStatus.PRECLAIM_REJECTED),
+				"debug records failed pre-claim without re-running it");
+		check(attempts.stream().anyMatch(a -> a.label().equals("throw")
+				&& a.status() == PmbSkillDebugSnapshot.AttemptStatus.RESOURCE_BLOCKED
+				&& a.blockedResource() == PmbSkillScheduler.Resource.USE_ITEM
+				&& "shield".equals(a.blocker())), "debug records resource blocker and owner");
+		check(attempts.stream().anyMatch(a -> a.label().equals("raise")
+				&& a.status() == PmbSkillDebugSnapshot.AttemptStatus.FINAL_REJECTED),
+				"admitted action without execution marker becomes final rejected");
+
+		PmbSkillScheduler[] current = {new PmbSkillScheduler()};
+		prepareDebug(current[0], true);
+		current[0].offer("mace", "smash", PmbSkillScheduler.Category.MAIN, 20, () -> true,
+				() -> current[0].markCurrentCandidateExecuted("mace"), PmbSkillScheduler.Resource.SMASH);
+		resolveCandidates(current[0]);
+		check(debugAttempts(current[0]).getFirst().status() == PmbSkillDebugSnapshot.AttemptStatus.EXECUTED,
+				"matching winner execution marker is recorded");
+		current[0] = new PmbSkillScheduler();
+		prepareDebug(current[0], true);
+		current[0].offer("mace", "smash", PmbSkillScheduler.Category.MAIN, 20, () -> true,
+				() -> current[0].markCurrentCandidateExecuted("bow"), PmbSkillScheduler.Resource.SMASH);
+		resolveCandidates(current[0]);
+		check(debugAttempts(current[0]).getFirst().status() == PmbSkillDebugSnapshot.AttemptStatus.FINAL_REJECTED,
+				"mismatched execution marker is safely ignored");
+
+		PmbSkillScheduler.Resource[] mutable = {PmbSkillScheduler.Resource.LOOK};
+		var immutable = PmbSkillDebugSnapshot.CandidateAttempt.admitted("wind", "throw",
+				PmbSkillScheduler.Category.THROW, 10, mutable);
+		mutable[0] = PmbSkillScheduler.Resource.SMASH;
+		check(immutable.resources().equals(List.of(PmbSkillScheduler.Resource.LOOK)),
+				"candidate diagnostic copies mutable resource arrays");
+
+		UUID debugUuid = UUID.randomUUID();
+		var debugSnapshot = new PmbSkillDebugSnapshot(42, debugUuid, "minecraft:husk", 100,
+				PmbSkillScheduler.Strategy.COMBAT, UUID.randomUUID(),
+				List.of(new PmbSkillDebugSnapshot.SkillState("bow", true, true, true,
+						"line=7,arc=11", "-"),
+						new PmbSkillDebugSnapshot.SkillState("shield", true, false, false, "check=0", "-"),
+						new PmbSkillDebugSnapshot.SkillState("mace", false, false, false, "smash=0", "-")),
+				List.of(PmbSkillDebugSnapshot.CandidateAttempt.resourceBlocked("bow", "line",
+						PmbSkillScheduler.Category.MAIN, 10,
+						new PmbSkillScheduler.Resource[] {PmbSkillScheduler.Resource.USE_ITEM},
+						PmbSkillScheduler.Resource.USE_ITEM, "shield")),
+				Map.of(), Map.of(PmbSkillScheduler.Resource.USE_ITEM, "shield"),
+				Map.of("bow", "hand=MAIN_HAND"), null, true, List.of("bow"), false, "-");
+		var formatted = debugSnapshot.formatForLog(103);
+		check(formatted.startsWith("PMB SKILL DEBUG\nENTITY: minecraft:husk#42 uuid=" + debugUuid),
+				"skill debug log formatter starts with prominent entity identity");
+		check(formatted.contains("\nSKILLS:\n  bow [ACTIVE] cooldown{line=7,arc=11}")
+				&& !formatted.contains("shield [") && !formatted.contains("mace ["),
+				"skill debug log shows only enabled skills and highlights active state");
+		check(formatted.contains("\nLAST ATTEMPTS:\n  bow/line [RESOURCE_BLOCKED]")
+				&& formatted.contains("\nRESOURCES:\n  sustained={}\n  current={USE_ITEM=shield}")
+				&& formatted.contains("\nBINDINGS:\n  bow=hand=MAIN_HAND")
+				&& formatted.contains("\nMELEE: SUPPRESSED reasons=[bow]")
+				&& formatted.contains("\nCONTEXT:\n  snapshotTick=100 ageTicks=3 strategy=COMBAT"),
+				"skill debug log formatter keeps ordered diagnostic sections and key fields");
+		check(inOrder(formatted, "\nENTITY:", "\nMELEE:", "\nSKILLS:", "\nLAST ATTEMPTS:",
+				"\nRESOURCES:", "\nBINDINGS:", "\nCONTEXT:"),
+				"skill debug log puts melee warning immediately after identity before skill diagnostics");
+
+		var emptySnapshot = new PmbSkillDebugSnapshot(7, UUID.randomUUID(), "minecraft:zombie", 1,
+				PmbSkillScheduler.Strategy.IDLE, null,
+				List.of(new PmbSkillDebugSnapshot.SkillState("bow", true, false, false, "line=0", "-")),
+				List.of(), Map.of(), Map.of(), Map.of(), null, false, List.of(), false, "-");
+		String empty = emptySnapshot.formatForLog(1);
+		check(empty.contains("\nSKILLS: []\nLAST ATTEMPTS: []\nRESOURCES: {}\nBINDINGS: []"),
+				"empty debug sections remain visible with exact compact markers");
+
+		Component chat = debugSnapshot.formatForChat(103);
+		String chatText = chat.getString();
+		check(chatText.contains("debug.portable-mob-behaviour.skills")
+				&& chatText.contains("debug.portable-mob-behaviour.status.resource_blocked"),
+				"chat formatter retains translatable keys for client localization");
+		check(inOrder(chatText, "debug.portable-mob-behaviour.entity",
+				"debug.portable-mob-behaviour.melee", "debug.portable-mob-behaviour.skills",
+				"debug.portable-mob-behaviour.attempts", "debug.portable-mob-behaviour.resources",
+				"debug.portable-mob-behaviour.bindings", "debug.portable-mob-behaviour.context"),
+				"localized chat puts melee warning immediately after identity before skill diagnostics");
+		check(containsColor(chat, ChatFormatting.GOLD) && containsColor(chat, ChatFormatting.GREEN)
+				&& containsColor(chat, ChatFormatting.RED),
+				"chat formatter applies title, active, and blocked/suppressed status colors");
+		Component unavailable = PmbSkillDebugFormatter.formatUnavailableForChat(
+				"minecraft:husk", 42, debugUuid);
+		check(unavailable.getString().contains("debug.portable-mob-behaviour.snapshot.unavailable"),
+				"unavailable chat report remains localizable");
+
+		var buffer = new net.minecraft.network.FriendlyByteBuf(io.netty.buffer.Unpooled.buffer());
+		try {
+			var request = new com.pmb.network.PmbProtocolPackets.SkillDebugRequest(2008);
+			com.pmb.network.PmbProtocolPackets.SkillDebugRequest.CODEC.encode(buffer, request);
+			check(com.pmb.network.PmbProtocolPackets.SkillDebugRequest.CODEC.decode(buffer).entityId() == 2008,
+					"skill debug request varint codec round trip");
+		} finally { buffer.release(); }
+	}
+	private static boolean containsColor(Component component, ChatFormatting formatting) {
+		TextColor expected = TextColor.fromLegacyFormat(formatting);
+		if (expected.equals(component.getStyle().getColor())) return true;
+		return component.getSiblings().stream().anyMatch(child -> containsColor(child, formatting));
+	}
+	private static boolean inOrder(String text, String... markers) {
+		int previous = -1;
+		for (String marker : markers) {
+			int current = text.indexOf(marker);
+			if (current <= previous) return false;
+			previous = current;
+		}
+		return true;
+	}
+	private static void testDebugCaptureGate() throws Exception {
+		Fixture mob = fixture();
+		for (int i = 0; i < 3; i++) mob.scheduler.movement().apply(mob, mob.scheduler);
+		check(mob.scheduler.movement().snapshot() == null,
+				"unconfigured mob does not allocate or retain a movement debug snapshot");
+
+		PmbSkillScheduler scheduler = new PmbSkillScheduler();
+		int[] calls = {0, 0, 0};
+		scheduler.offerDynamic("plain", "plain", PmbSkillScheduler.Category.MAIN, 1,
+				() -> { calls[0]++; return true; }, () -> calls[2]++,
+				() -> { calls[1]++; return new PmbSkillScheduler.Resource[] {PmbSkillScheduler.Resource.LOOK}; });
+		resolveCandidates(scheduler);
+		check(java.util.Arrays.equals(calls, new int[] {1, 1, 1}),
+				"unconfigured scheduler executes production pre-claim, resource and winner callbacks exactly once");
+		check(field(PmbSkillScheduler.class, "candidateAttempts").get(scheduler) == null,
+				"unconfigured scheduler does not allocate candidate diagnostics");
+
+		field(PmbBowAiData.class, "configured").setBoolean(mob.ai.bow(), true);
+		mob.scheduler.movement().apply(mob, mob.scheduler);
+		check(mob.scheduler.movement().snapshot() != null,
+				"configured transition enables movement diagnostic capture");
+		prepareDebug(scheduler, true);
+		check(field(PmbSkillScheduler.class, "candidateAttempts").get(scheduler) != null,
+				"configured transition enables candidate diagnostic capture");
+		field(PmbSkillScheduler.class, "lastDebugSnapshot").set(scheduler,
+				new PmbSkillDebugSnapshot(1, java.util.UUID.randomUUID(), "minecraft:zombie", 1,
+						PmbSkillScheduler.Strategy.IDLE, null, List.of(), List.of(), Map.of(), Map.of(),
+						Map.of(), null, false, List.of(), false, "-"));
+		prepareDebug(scheduler, false);
+		check(field(PmbSkillScheduler.class, "candidateAttempts").get(scheduler) == null
+				&& scheduler.lastDebugSnapshot() == null,
+				"configuration removal clears candidate capture and stale completed snapshot");
+		field(PmbBowAiData.class, "configured").setBoolean(mob.ai.bow(), false);
+		mob.scheduler.movement().apply(mob, mob.scheduler);
+		check(mob.scheduler.movement().snapshot() == null,
+				"configuration removal clears stale movement snapshot");
+	}
+	private static void prepareDebug(PmbSkillScheduler scheduler, boolean configured) throws Exception {
+		var method = PmbSkillScheduler.class.getDeclaredMethod("prepareDebugCapture", boolean.class);
+		method.setAccessible(true);
+		method.invoke(scheduler, configured);
+	}
+	@SuppressWarnings("unchecked")
+	private static List<PmbSkillDebugSnapshot.CandidateAttempt> debugAttempts(PmbSkillScheduler scheduler)
+			throws Exception {
+		return List.copyOf((List<PmbSkillDebugSnapshot.CandidateAttempt>)
+				field(PmbSkillScheduler.class, "candidateAttempts").get(scheduler));
+	}
 	private static void testSchema() throws Exception {
 		for (String id : List.of("bow", "shield", "wind_charge", "ender_pearl")) {
 			var entry = PmbSkillSchema.byId(id).field("preferredHand");
@@ -199,6 +381,69 @@ public final class PmbEquipmentMovementTest {
 			rejected = true;
 		}
 		check(rejected, "command schema rejects random cooldown bias above maximum");
+	}
+	private static void testBowMeleeSuppressionRules() throws Exception {
+		PmbBowAiData bow = new PmbBowAiData();
+		field(PmbBowAiData.class, "configured").setBoolean(bow, true);
+		field(PmbBowAiData.class, "enabled").setBoolean(bow, true);
+		field(PmbBowAiData.class, "lineMinRange").setFloat(bow, 4.0F);
+		field(PmbBowAiData.class, "lineMaxRange").setFloat(bow, 8.0F);
+		field(PmbBowAiData.class, "lineShootChance").setFloat(bow, 1.0F);
+		field(PmbBowAiData.class, "arcMinRange").setFloat(bow, 12.0F);
+		field(PmbBowAiData.class, "arcMaxRange").setFloat(bow, 16.0F);
+		field(PmbBowAiData.class, "arcShootChance").setFloat(bow, 1.0F);
+
+		check(PmbSkillItemAccess.hasBowInAllowedHand(PmbPreferredHand.MAIN, true, false)
+				&& PmbSkillItemAccess.hasBowInAllowedHand(PmbPreferredHand.MAIN, false, true)
+				&& PmbSkillItemAccess.hasBowInAllowedHand(PmbPreferredHand.OFF, true, false)
+				&& PmbSkillItemAccess.hasBowInAllowedHand(PmbPreferredHand.OFF, false, true),
+				"soft bow hand preferences accept an already held bow in either hand");
+		check(PmbSkillItemAccess.hasBowInAllowedHand(PmbPreferredHand.MAIN_ENFORCE, true, false)
+				&& !PmbSkillItemAccess.hasBowInAllowedHand(PmbPreferredHand.MAIN_ENFORCE, false, true)
+				&& PmbSkillItemAccess.hasBowInAllowedHand(PmbPreferredHand.OFF_ENFORCE, false, true)
+				&& !PmbSkillItemAccess.hasBowInAllowedHand(PmbPreferredHand.OFF_ENFORCE, true, false),
+				"enforced bow hand preferences accept only their required hand");
+		check(!PmbSkillItemAccess.hasBowInAllowedHand(PmbPreferredHand.MAIN, false, false),
+				"inventory or binding availability without a held bow cannot suppress melee");
+
+		check(!PmbSkillItemAccess.shouldSuppressMeleeForBow(bow, false, 4.0D, true, true),
+				"missing invalid dead cross-level or unattackable target cannot suppress melee");
+		check(PmbSkillItemAccess.shouldSuppressMeleeForBow(bow, true, 4.0D, true, false)
+				&& PmbSkillItemAccess.shouldSuppressMeleeForBow(bow, true, 8.0D, true, false)
+				&& PmbSkillItemAccess.shouldSuppressMeleeForBow(bow, true, 12.0D, true, false)
+				&& PmbSkillItemAccess.shouldSuppressMeleeForBow(bow, true, 16.0D, true, false),
+				"line and arc closed range boundaries suppress melee without consumed ammunition");
+		check(!PmbSkillItemAccess.shouldSuppressMeleeForBow(bow, true, 3.99D, true, true)
+				&& !PmbSkillItemAccess.shouldSuppressMeleeForBow(bow, true, 10.0D, true, true)
+				&& !PmbSkillItemAccess.shouldSuppressMeleeForBow(bow, true, 16.01D, true, true),
+				"outside and gap distances restore ordinary melee");
+
+		field(PmbBowAiData.class, "lineShootChance").setFloat(bow, 0.0F);
+		check(!PmbSkillItemAccess.shouldSuppressMeleeForBow(bow, true, 6.0D, true, true)
+				&& PmbSkillItemAccess.shouldSuppressMeleeForBow(bow, true, 14.0D, true, true),
+				"zero-chance mode does not suppress while another live range still can");
+		field(PmbBowAiData.class, "lineShootChance").setFloat(bow, 1.0F);
+		field(PmbBowAiData.class, "lineCooldown").setInt(bow, 100);
+		check(PmbSkillItemAccess.shouldSuppressMeleeForBow(bow, true, 6.0D, true, false),
+				"cooldown does not participate in lightweight melee suppression");
+
+		field(PmbBowAiData.class, "doConsume").setBoolean(bow, true);
+		check(!PmbSkillItemAccess.shouldSuppressMeleeForBow(bow, true, 6.0D, true, false)
+				&& PmbSkillItemAccess.shouldSuppressMeleeForBow(bow, true, 6.0D, true, true),
+				"consuming bow requires currently available supported ammunition");
+		Fixture ammunitionMob = fixture();
+		ammunitionMob.items.put(InteractionHand.MAIN_HAND, new ItemStack(Items.BOW));
+		ammunitionMob.items.put(InteractionHand.OFF_HAND, new ItemStack(Items.ARROW));
+		PmbAmmoAccess.Source ammunition = PmbAmmoAccess.find(ammunitionMob, stack -> stack.is(Items.ARROW));
+		check(ammunition != null && PmbSkillItemAccess.shouldSuppressMeleeForBow(bow, true, 6.0D,
+				true, true), "real hand ammunition satisfies consuming bow suppression");
+		check(ammunition.consume(ammunitionMob)
+				&& PmbAmmoAccess.find(ammunitionMob, stack -> stack.is(Items.ARROW)) == null
+				&& !PmbSkillItemAccess.shouldSuppressMeleeForBow(bow, true, 6.0D, true, false),
+				"exhausting the last supported arrow restores ordinary melee eligibility");
+		field(PmbBowAiData.class, "enabled").setBoolean(bow, false);
+		check(!PmbSkillItemAccess.shouldSuppressMeleeForBow(bow, true, 6.0D, true, true),
+				"disabled bow never suppresses ordinary melee");
 	}
 	private static void testSkillTimingAndPreClaim() throws Exception {
 		var zero = net.minecraft.util.RandomSource.create(2008L);

@@ -129,7 +129,7 @@ public abstract class PmbMobShieldMixin extends LivingEntity implements PmbSkill
 				shieldAi.fetchSource(), List.of(InteractionHand.OFF_HAND),
 				stack -> stack.is(Items.SHIELD), shieldAi.preferredHand(), "shield");
 		if (item == null) return;
-		PmbSkillScheduler.of(mob).offer("shield", PmbSkillScheduler.Category.OFF, 10,
+		PmbSkillScheduler.of(mob).offer("shield", "raise", PmbSkillScheduler.Category.OFF, 10,
 				() -> {
 					shieldAi.resetCooldown(getRandom());
 					return PmbSkillTiming.passesChance(getRandom(), shieldAi.chance());
@@ -145,6 +145,7 @@ public abstract class PmbMobShieldMixin extends LivingEntity implements PmbSkill
 					shieldAi.setUseTicks(randomPmbShieldDuration(shieldAi));
 					startUsingItem(pmb$shieldHand);
 					updatePmbShieldSpeedModifier(shieldAi);
+					PmbSkillScheduler.of(mob).markCurrentCandidateExecuted("shield");
 				}, item.resources(PmbSkillScheduler.Resource.USE_ITEM));
 	}
 

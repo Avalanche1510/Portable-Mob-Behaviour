@@ -108,7 +108,7 @@ public abstract class PmbMobWindChargeMixin extends LivingEntity implements PmbS
 			boolean throwEligible = distanceSquared <= windChargeAi.throwRange() * windChargeAi.throwRange()
 					&& hasLineOfSight(target) && windChargeAi.canCheckThrow();
 			boolean[] bouncePassed = {false};
-			PmbSkillScheduler.of(mob).offerDynamic("wind", PmbSkillScheduler.Category.THROW, 10,
+			PmbSkillScheduler.of(mob).offerDynamic("wind", "bounce", PmbSkillScheduler.Category.THROW, 10,
 					() -> {
 						windChargeAi.resetBounceCooldown(getRandom());
 						bouncePassed[0] = PmbSkillTiming.passesChance(getRandom(), windChargeAi.bounceChance());
@@ -119,7 +119,7 @@ public abstract class PmbMobWindChargeMixin extends LivingEntity implements PmbS
 							pmb$performWindChargeBounce(serverLevel, mob, target, windChargeAi, evasive, item);
 					}, () -> item.resources(PmbSkillScheduler.Resource.LOOK));
 			if (throwEligible) {
-				PmbSkillScheduler.of(mob).offerDynamic("wind", PmbSkillScheduler.Category.THROW, 10,
+				PmbSkillScheduler.of(mob).offerDynamic("wind", "throw", PmbSkillScheduler.Category.THROW, 10,
 						() -> {
 							if (bouncePassed[0]) return false;
 							windChargeAi.resetThrowCooldown(getRandom());
@@ -135,7 +135,7 @@ public abstract class PmbMobWindChargeMixin extends LivingEntity implements PmbS
 
 		if (distanceSquared <= windChargeAi.throwRange() * windChargeAi.throwRange()
 				&& hasLineOfSight(target) && windChargeAi.canCheckThrow()) {
-			PmbSkillScheduler.of(mob).offerDynamic("wind", PmbSkillScheduler.Category.THROW, 10,
+			PmbSkillScheduler.of(mob).offerDynamic("wind", "throw", PmbSkillScheduler.Category.THROW, 10,
 					() -> {
 						windChargeAi.resetThrowCooldown(getRandom());
 						return PmbSkillTiming.passesChance(getRandom(), windChargeAi.throwChance());
@@ -224,6 +224,7 @@ public abstract class PmbMobWindChargeMixin extends LivingEntity implements PmbS
 		pmb$consumeWindCharge(hand, windChargeAi);
 		pmb$playWindChargeThrowSound(level);
 		lease.authorizeAction(mob);
+		PmbSkillScheduler.of(mob).markCurrentCandidateExecuted("wind");
 	}
 
 	@Unique
@@ -245,6 +246,7 @@ public abstract class PmbMobWindChargeMixin extends LivingEntity implements PmbS
 		pmb$lookStraightDown(mob);
 		swing(hand, true);
 		jumpFromGround();
+		PmbSkillScheduler.of(mob).markCurrentCandidateExecuted("wind");
 
 		Vec3 start = new Vec3(getX(), getY() + 0.15D, getZ());
 		setIgnoreFallDamageFromCurrentImpulse(true, start);

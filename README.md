@@ -30,6 +30,8 @@ PmbFaction是服务端持久实体NBT，可直接写入summon数据，例如`/su
 
 `26.9.10-1`统一五项技能为先判定概率、再竞争动作资源，并加入默认20的`randomCooldownBias`随机冷却偏移；概率失败不再无效抢占资源。该版本还新增`VanillaCompatRules.breeze.windChargeNoAnger`，默认保留旋风人风弹的原版不激怒行为，同时允许其他合法LivingEntity来源的风弹使neutral Faction生物反击。
 
+`26.9.11-1`加入默认`K`键的服务端技能调试探针。管理员将准星对准具有PmbAi技能的Mob并按键后，请求者聊天栏与服务端日志会同时输出上一完整技能刻的诊断报告；报告在实体身份后立即突出普通近战是否被压制，再展示启用技能及其正在执行/等待状态、最近候选、资源、绑定和运行上下文。聊天版本按客户端语言本地化并为关键状态着色；按键可在控制设置中重绑。聊天输出使用原版系统消息，不广播给其他玩家，也不使用自定义S2C负载同步完整PmbAi。本版本还将弓的近战压制改为实时判定：只有实际手持弓、存在合法当前目标、距离位于有效射击模式范围内，且消费模式仍有AmmoSource弹药时才压制；FetchSource只负责技能启动与换装。
+
 ## 资源指南：
 
 [模组文档](https://github.com/Avalanche1510/Portable-Mob-Behaviour/blob/26.1.1/Docs/模组文档.md)  
@@ -92,6 +94,8 @@ PmbFaction is persistent server-side entity NBT and can be supplied directly to 
 `26.9.8-2` adds `preferredHand` with `main`, `off`, `main-enforce`, `off-enforce` and enum completion. Bow defaults to main, shield/wind_charge/ender_pearl to off; mace always uses mainhand. A suitable destination-hand item is used directly; otherwise `FetchSource` supplies a permanent exchange. Bow `AmmoSource` independently selects arrows, defaulting to hands then PMB inventory. Actions no longer restore equipment and movement intentions do not block skill activation.
 
 `26.9.10-1` makes all five skills roll chance before competing for action resources and adds `randomCooldownBias`, defaulting to 20, so failed rolls no longer occupy unusable resources. It also adds `VanillaCompatRules.breeze.windChargeNoAnger`, preserving vanilla no-anger behavior for Breeze-owned wind charges by default while allowing wind charges from other valid living owners to make neutral Faction mobs retaliate.
+
+`26.9.11-1` adds a server-side skill debug probe bound to `K` by default. When a gamemaster aims at a Mob with PmbAi skills and presses the key, both the requester's chat and the server log print a diagnostic report for the last completed skill tick. Immediately after entity identity, the report highlights whether ordinary melee is suppressed, then shows enabled skills and their active/ready state, recent candidates, resources, bindings, and runtime context. The chat copy is localized by the client and color-codes important states. The key can be rebound in Controls. Chat output uses a vanilla system message, is not broadcast to other players, and does not use a custom S2C payload to synchronize complete PmbAi data. This version also makes bow melee suppression a live predicate: it applies only with a bow actually held, a valid current target inside an enabled shooting mode's range, and AmmoSource ammunition when consuming; FetchSource is used only to start the skill and exchange equipment.
 
 ## Resource Guide:
 

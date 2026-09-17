@@ -86,7 +86,7 @@ public abstract class PmbMobEnderPearlMixin extends LivingEntity implements PmbS
 				List.of(InteractionHand.MAIN_HAND, InteractionHand.OFF_HAND), stack -> stack.is(Items.ENDER_PEARL),
 				pearlAi.preferredHand(), "pearl");
 		if (item == null) return;
-		PmbSkillScheduler.of(mob).offerDynamic("pearl", PmbSkillScheduler.Category.THROW, 20,
+		PmbSkillScheduler.of(mob).offerDynamic("pearl", "throw", PmbSkillScheduler.Category.THROW, 20,
 				() -> {
 					pearlAi.resetThrowCooldown(getRandom());
 					return PmbSkillTiming.passesChance(getRandom(), pearlAi.throwChance());
@@ -97,6 +97,7 @@ public abstract class PmbMobEnderPearlMixin extends LivingEntity implements PmbS
 					if (lease == null) return;
 					pmb$throwEnderPearl(serverLevel, mob, lease.hand(), pearlAi, velocity);
 					lease.authorizeAction(mob);
+					PmbSkillScheduler.of(mob).markCurrentCandidateExecuted("pearl");
 				}, () -> item.resources(PmbSkillScheduler.Resource.LOOK));
 	}
 

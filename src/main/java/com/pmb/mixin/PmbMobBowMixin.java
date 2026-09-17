@@ -107,7 +107,8 @@ public abstract class PmbMobBowMixin extends LivingEntity implements PmbSkillHoo
 		float chance;
 		chance = mode == PMB_BOW_LINE ? bowAi.lineShootChance() : bowAi.arcShootChance();
 		PmbSkillScheduler.Resource[] actionResources = bowItem.resources(PmbSkillScheduler.Resource.USE_ITEM, PmbSkillScheduler.Resource.LOOK);
-		PmbSkillScheduler.of(mob).offer("bow", PmbSkillScheduler.Category.MAIN, 10, () -> {
+		PmbSkillScheduler.of(mob).offer("bow", mode == PMB_BOW_LINE ? "line" : "arc",
+				PmbSkillScheduler.Category.MAIN, 10, () -> {
 			if (mode == PMB_BOW_LINE) bowAi.resetLineCooldown(getRandom());
 			else bowAi.resetArcCooldown(getRandom());
 			return PmbSkillTiming.passesChance(getRandom(), chance);
@@ -141,6 +142,7 @@ public abstract class PmbMobBowMixin extends LivingEntity implements PmbSkillHoo
 			pmb$faceBowTrajectory(mob, target, bowAi, mode);
 			startUsingItem(pmb$bowHand);
 			pmb$offerBowMovement(mob, bowAi, target, mode);
+			PmbSkillScheduler.of(mob).markCurrentCandidateExecuted("bow");
 			if (pmb$bowChargeTicks == 0) pmb$releaseBow(serverLevel, mob, bowAi);
 		}, actionResources);
 	}

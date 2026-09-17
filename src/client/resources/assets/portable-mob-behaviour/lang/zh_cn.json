@@ -1,0 +1,22 @@
+{
+  "key.portable-mob-behaviour.skill_debug": "输出PMB技能调试快照",
+  "debug.portable-mob-behaviour.title": "PMB 技能调试",
+  "debug.portable-mob-behaviour.entity": "实体",
+  "debug.portable-mob-behaviour.snapshot": "快照",
+  "debug.portable-mob-behaviour.skills": "启用技能",
+  "debug.portable-mob-behaviour.attempts": "最近尝试",
+  "debug.portable-mob-behaviour.resources": "资源归属",
+  "debug.portable-mob-behaviour.bindings": "物品绑定",
+  "debug.portable-mob-behaviour.melee": "普通近战",
+  "debug.portable-mob-behaviour.context": "运行上下文",
+  "debug.portable-mob-behaviour.skill.active": "正在执行",
+  "debug.portable-mob-behaviour.skill.ready": "等待触发",
+  "debug.portable-mob-behaviour.melee.suppressed": "已压制",
+  "debug.portable-mob-behaviour.melee.available": "可用",
+  "debug.portable-mob-behaviour.snapshot.unavailable": "暂不可用（尚无已完成的PMB技能刻）",
+  "debug.portable-mob-behaviour.status.preclaim_rejected": "前置检查失败",
+  "debug.portable-mob-behaviour.status.resource_blocked": "资源冲突",
+  "debug.portable-mob-behaviour.status.admitted": "已获准",
+  "debug.portable-mob-behaviour.status.admitted.final_rejected": "最终检查失败",
+  "debug.portable-mob-behaviour.status.admitted.executed": "已执行"
+}

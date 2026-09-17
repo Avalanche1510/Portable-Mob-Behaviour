@@ -17,6 +17,12 @@ public final class PmbMovementController {
 	private String winner;
 	private int winnerEpoch = -1;
 	private boolean applying;
+	private DebugSnapshot debugSnapshot;
+	public record DebugSnapshot(int tick, String locomotionOwner, Type locomotionType,
+			List<String> velocityModifierOwners) {
+		public DebugSnapshot { velocityModifierOwners = List.copyOf(velocityModifierOwners); }
+	}
+	public DebugSnapshot snapshot() { return debugSnapshot; }
 	public void submit(Mob mob, String owner, Type type, Tier tier, PmbSkillScheduler.Category category,
 			int rank, BooleanSupplier valid, Runnable apply) {
 		intents.removeIf(intent -> intent.owner().equals(owner) && intent.type() == type);
@@ -34,13 +40,20 @@ public final class PmbMovementController {
 	}
 	/** Runs after vanilla navigation/Brain and immediately before the actual MoveControl tick. */
 	public void apply(Mob mob, PmbSkillScheduler scheduler) {
+		boolean captureDebug = ((PmbAiHolder) mob).pmb$getAiData().isConfigured();
 		winner = null;
-		if (!mob.isAlive() || mob.isNoAi()) { clear(); return; }
+		if (!mob.isAlive() || mob.isNoAi()) {
+			clear();
+			debugSnapshot = captureDebug ? new DebugSnapshot(mob.tickCount, null, null, List.of()) : null;
+			return;
+		}
 		if (((PmbAiHolder) mob).pmb$getAiData().shield().isVulnerable()) {
 			clear();
 			mob.getNavigation().stop();
 			mob.getMoveControl().setWait();
 			mob.setXxa(0); mob.setZza(0); mob.setYya(0);
+			debugSnapshot = captureDebug
+					? new DebugSnapshot(mob.tickCount, "shield_vulnerability", Type.HARD_STOP, List.of()) : null;
 			return;
 		}
 		intents.removeIf(intent -> mob.tickCount - intent.epoch() > 1 || !intent.valid().getAsBoolean());
@@ -51,14 +64,21 @@ public final class PmbMovementController {
 		Intent locomotion = hardStop != null ? hardStop : intents.stream()
 				.filter(intent -> intent.type() == Type.LOCOMOTION).min(order).orElse(null);
 		applying = true;
+		List<String> appliedModifiers = captureDebug ? new ArrayList<>() : null;
 		try {
 			if (locomotion != null) {
 				winner = locomotion.owner(); winnerEpoch = mob.tickCount;
 				locomotion.apply().run();
 			}
 			if (hardStop == null) intents.stream().filter(intent -> intent.type() == Type.VELOCITY_MODIFIER).sorted(order)
-					.forEach(intent -> intent.apply().run());
+					.forEach(intent -> {
+						intent.apply().run();
+						if (appliedModifiers != null) appliedModifiers.add(intent.owner());
+					});
 		} finally { applying = false; }
+		debugSnapshot = captureDebug ? new DebugSnapshot(mob.tickCount,
+				locomotion == null ? null : locomotion.owner(), locomotion == null ? null : locomotion.type(),
+				appliedModifiers) : null;
 		// Effects are consumed once. A continuing skill/faction explicitly submits its next intent.
 		intents.clear();
 	}

@@ -25,7 +25,7 @@ public final class PmbSkillScheduler {
 	public enum Strategy { IDLE, COMBAT, RETREAT, BLOCKED }
 	public enum Category { MAIN, OFF, THROW, FOOD, BLOCK }
 	public enum Resource { MAIN_HAND, OFF_HAND, USE_ITEM, LOOK, SMASH, SHAKE }
-	private record Candidate(String owner, Category category, int rank, Supplier<EnumSet<Resource>> resources,
+	private record Candidate(String owner, String label, Category category, int rank, Supplier<EnumSet<Resource>> resources,
 			BooleanSupplier preClaim, Runnable won) {}
 	private final PmbMovementController movement = new PmbMovementController();
 	public PmbMovementController movement() { return movement; }
@@ -34,6 +34,10 @@ public final class PmbSkillScheduler {
 	private final Map<String, PmbSkillItemAccess.ActionBinding> bindings = new HashMap<>();
 	private final Map<Resource, String> claimedThisTick = new EnumMap<>(Resource.class);
 	private final List<Candidate> candidates = new ArrayList<>();
+	private List<PmbSkillDebugSnapshot.CandidateAttempt> candidateAttempts;
+	private int executingCandidate = -1;
+	private boolean executingCandidateMarked;
+	private PmbSkillDebugSnapshot lastDebugSnapshot;
 
 	public Strategy strategy() { return strategy; }
 	public UUID authorityTarget() { return authorityTarget; }
@@ -67,19 +71,33 @@ public final class PmbSkillScheduler {
 	}
 	public void offer(String owner, Category category, int rank, BooleanSupplier preClaim, Runnable won,
 			Resource... resources) {
+		offer(owner, owner, category, rank, preClaim, won, resources);
+	}
+	public void offer(String owner, String label, Category category, int rank, BooleanSupplier preClaim, Runnable won,
+			Resource... resources) {
 		EnumSet<Resource> set = resources.length == 0 ? EnumSet.noneOf(Resource.class)
 				: EnumSet.copyOf(Arrays.asList(resources));
-		candidates.add(new Candidate(owner, category, rank, () -> set, preClaim, won));
+		candidates.add(new Candidate(owner, label, category, rank, () -> set, preClaim, won));
 	}
 	public void offerDynamic(String owner, Category category, int rank, BooleanSupplier preClaim, Runnable won,
 			Supplier<Resource[]> resources) {
-		candidates.add(new Candidate(owner, category, rank, () -> {
+		offerDynamic(owner, owner, category, rank, preClaim, won, resources);
+	}
+	public void offerDynamic(String owner, String label, Category category, int rank, BooleanSupplier preClaim, Runnable won,
+			Supplier<Resource[]> resources) {
+		candidates.add(new Candidate(owner, label, category, rank, () -> {
 			Resource[] resolved = resources.get();
 			return resolved.length == 0 ? EnumSet.noneOf(Resource.class)
 					: EnumSet.copyOf(Arrays.asList(resolved));
 		}, preClaim, won));
 	}
 	public static PmbSkillScheduler of(Mob mob) { return ((PmbSchedulerHolder) mob).pmb$getSkillScheduler(); }
+	public PmbSkillDebugSnapshot lastDebugSnapshot() { return lastDebugSnapshot; }
+	public void markCurrentCandidateExecuted(String owner) {
+		if (candidateAttempts == null || executingCandidate < 0 || executingCandidate >= candidateAttempts.size()) return;
+		PmbSkillDebugSnapshot.CandidateAttempt attempt = candidateAttempts.get(executingCandidate);
+		if (attempt.owner().equals(owner)) executingCandidateMarked = true;
+	}
 
 	/** One-time compatibility recovery for pre-permanent-swap saves. No new journal is written. */
 	public void readAndRollbackSwapJournal(Mob mob, ValueInput root) {
@@ -103,6 +121,8 @@ public final class PmbSkillScheduler {
 	public void tick(Mob mob) {
 		claimedThisTick.clear();
 		candidates.clear();
+		PmbAiData ai = ((PmbAiHolder) mob).pmb$getAiData();
+		prepareDebugCapture(ai.isConfigured());
 		LivingEntity avoid = ((PmbFactionMobState) mob).pmb$getFactionAvoidTarget();
 		LivingEntity combat = mob.getTarget();
 		Strategy next;
@@ -134,17 +154,67 @@ public final class PmbSkillScheduler {
 		((PmbSkillHooks.Pearl) mob).pmb$tickPearlSkill();
 		((PmbSkillHooks.Wind) mob).pmb$tickWindSkill();
 		resolveCandidates();
+		if (candidateAttempts != null) {
+			lastDebugSnapshot = PmbSkillDebugSnapshot.capture(mob, this, ai,
+					candidateAttempts, sustained, claimedThisTick, bindings, movement.snapshot());
+			candidateAttempts = null;
+		}
+	}
+	private void prepareDebugCapture(boolean configured) {
+		if (configured) candidateAttempts = new ArrayList<>();
+		else {
+			candidateAttempts = null;
+			lastDebugSnapshot = null;
+		}
 	}
 	private void resolveCandidates() {
 		candidates.sort(Comparator.comparingInt((Candidate candidate) -> categoryPriority(candidate.category())).reversed()
 				.thenComparing(Comparator.comparingInt(Candidate::rank).reversed()).thenComparing(Candidate::owner));
 		List<Candidate> winners = new ArrayList<>();
+		List<Integer> winnerAttemptIndices = candidateAttempts == null ? null : new ArrayList<>();
 		for (Candidate candidate : candidates) {
-			if (!candidate.preClaim().getAsBoolean()) continue;
+			if (!candidate.preClaim().getAsBoolean()) {
+				if (candidateAttempts != null) candidateAttempts.add(
+						PmbSkillDebugSnapshot.CandidateAttempt.preClaimRejected(candidate.owner(),
+								candidate.label(), candidate.category(), candidate.rank()));
+				continue;
+			}
 			Resource[] resources = candidate.resources().get().toArray(Resource[]::new);
-			if (claim(candidate.owner(), resources)) winners.add(candidate);
+			if (candidateAttempts == null) {
+				if (claim(candidate.owner(), resources)) winners.add(candidate);
+				continue;
+			}
+			Resource blocked = null;
+			String blocker = null;
+			for (Resource resource : resources) {
+				String current = claimedThisTick.get(resource);
+				if (current != null && !current.equals(candidate.owner())) { blocked = resource; blocker = current; break; }
+			}
+			if (blocked != null) {
+				candidateAttempts.add(PmbSkillDebugSnapshot.CandidateAttempt.resourceBlocked(candidate.owner(),
+						candidate.label(), candidate.category(), candidate.rank(), resources, blocked, blocker));
+				continue;
+			}
+			claim(candidate.owner(), resources);
+			candidateAttempts.add(PmbSkillDebugSnapshot.CandidateAttempt.admitted(candidate.owner(),
+					candidate.label(), candidate.category(), candidate.rank(), resources));
+			winners.add(candidate);
+			winnerAttemptIndices.add(candidateAttempts.size() - 1);
 		}
-		for (Candidate winner : winners) winner.won().run();
+		for (int winnerIndex = 0; winnerIndex < winners.size(); winnerIndex++) {
+			Candidate winner = winners.get(winnerIndex);
+			executingCandidate = winnerAttemptIndices == null ? -1 : winnerAttemptIndices.get(winnerIndex);
+			executingCandidateMarked = false;
+			try { winner.won().run(); }
+			finally {
+				if (candidateAttempts != null && executingCandidate >= 0) {
+					PmbSkillDebugSnapshot.CandidateAttempt current = candidateAttempts.get(executingCandidate);
+					candidateAttempts.set(executingCandidate, current.completed(executingCandidateMarked));
+				}
+				executingCandidate = -1;
+				executingCandidateMarked = false;
+			}
+		}
 	}
 	public int categoryPriority(Category category) {
 		return switch (strategy) {
