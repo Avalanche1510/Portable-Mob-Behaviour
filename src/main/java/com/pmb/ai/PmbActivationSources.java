@@ -52,14 +52,14 @@ public final class PmbActivationSources {
 		String value = raw.trim().toLowerCase();
 		if (value.equals("mainhand")) return new Source(Kind.MAIN_HAND, 0, 0);
 		if (value.equals("offhand")) return new Source(Kind.OFF_HAND, 0, 0);
-		if (value.equals("inventory")) return new Source(Kind.INVENTORY, 1, 27);
+		if (value.equals("inventory")) return new Source(Kind.INVENTORY, 1, PmbInventory.MAX_SLOTS);
 		if (!value.startsWith("inventory:")) return null;
 		String range = value.substring("inventory:".length());
 		try {
 			int separator = range.indexOf("..");
 			int first = separator < 0 ? Integer.parseInt(range) : Integer.parseInt(range.substring(0, separator));
 			int last = separator < 0 ? first : Integer.parseInt(range.substring(separator + 2));
-			if (first < 1 || last > 27 || first > last) return null;
+			if (first < 1 || last > PmbInventory.MAX_SLOTS || first > last) return null;
 			return new Source(Kind.INVENTORY, first, last);
 		} catch (NumberFormatException ignored) {
 			return null;
@@ -70,7 +70,7 @@ public final class PmbActivationSources {
 		return switch (source.kind()) {
 			case MAIN_HAND -> "mainhand";
 			case OFF_HAND -> "offhand";
-			case INVENTORY -> source.firstSlot() == 1 && source.lastSlot() == 27 ? "inventory"
+			case INVENTORY -> source.firstSlot() == 1 && source.lastSlot() == PmbInventory.MAX_SLOTS ? "inventory"
 					: source.firstSlot() == source.lastSlot() ? "inventory:" + source.firstSlot()
 					: "inventory:" + source.firstSlot() + ".." + source.lastSlot();
 		};

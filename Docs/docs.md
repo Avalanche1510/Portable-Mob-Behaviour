@@ -19,13 +19,13 @@ AI decisions, damage, and PmbAi configuration remain server-authoritative. Shiel
 Operators with gamemaster permission level 2 may edit one skill on one or more mobs without writing complete SNBT:
 
 ```mcfunction
-/pmb skills <targets> <skill> get
-/pmb skills <targets> <skill> append [<parameter>=<value>,...]
-/pmb skills <targets> <skill> insert [<parameter>=<value>,...]
-/pmb skills <targets> <skill> modify [<parameter>=<value>,...]
-/pmb skills <targets> <skill> delete [<parameter>,...]
-/pmb skills <targets> <skill> delete *
-/pmb skills <targets> <skill> delete []
+/pmb skills skill <targets> <skill> get
+/pmb skills skill <targets> <skill> append [<parameter>=<value>,...]
+/pmb skills skill <targets> <skill> insert [<parameter>=<value>,...]
+/pmb skills skill <targets> <skill> modify [<parameter>=<value>,...]
+/pmb skills skill <targets> <skill> delete [<parameter>,...]
+/pmb skills skill <targets> <skill> delete *
+/pmb skills skill <targets> <skill> delete []
 ```
 
 `<skill>` completes to `shield`, `wind_charge`, `mace`, `bow`, or `ender_pearl`. `append` creates a missing node, including an empty node with `append []`. `insert` adds only fields not already written explicitly. `modify` changes only explicitly written fields. `delete [a,b]` removes those explicit fields and restores their defaults. `delete *` retains an empty, disabled skill node with every value at its default. `delete []` removes the skill node itself. `get` accepts exactly one Mob and reports whether the node exists, its explicit fields, and every effective value with its explicit/default source.
@@ -34,14 +34,41 @@ The target selector must resolve only to Mob entities. Bulk writes first validat
 
 The bracket parser completes unused parameter names after `[` and each top-level comma, including typed tooltips and `key=` insertion. After `=`, booleans complete as `0b`/`1b`, `modePriority` as quoted `"line"`/`"arc"`, numeric defaults with the required suffix, and activation sources as quoted entries. Delete lists provide the same unused-key completion. Booleans accept only `0b` or `1b`; integers accept no decimal or suffix; floats require an `f` suffix and must be finite; strings require quotes. Unknown or duplicate keys, wrong types, values outside the documented ranges, invalid final min/max relationships, missing brackets, and trailing input are rejected at the command cursor. Only canonical case-sensitive names are offered; legacy NBT aliases remain read-compatible but are not command parameters.
 
-`FetchSource` is a quoted string list. It accepts `mainhand`, `offhand`, `inventory`, or `inventory:n`/`inventory:a..b` with `1 <= a <= b <= 27`; repeated and overlapping sources are allowed:
+`FetchSource` is a quoted string list. It accepts `mainhand`, `offhand`, `inventory`, or `inventory:n`/`inventory:a..b` with `1 <= a <= b <= 256`; repeated and overlapping sources are allowed:
 
 ```mcfunction
-/pmb skills @e[type=minecraft:zombie,limit=1] bow append [enable=1b,doConsume=1b,modePriority="arc",mobileWhileShooting=1b,lineMinRange=0.0f,lineMaxRange=14.0f,lineSafeDistance=6.0f,lineCooldownTicks=30,lineShootChance=0.8f,lineShootAccuracy=1.0f,lineChargeTicks=10,linePower=0.8f,arcMinRange=12.0f,arcMaxRange=64.0f,arcSafeDistance=10.0f,arcCooldownTicks=50,arcShootChance=0.6f,arcShootAccuracy=0.95f,arcChargeTicks=20,arcAngle=60.0f,arcMaxPower=1.25f]
-/pmb skills @e[type=minecraft:zombie,limit=1] bow insert [FetchSource=["mainhand","inventory:1..9","inventory:7..16"]]
-/pmb skills @e[type=minecraft:zombie,limit=1] bow modify [lineShootChance=1.0f]
-/pmb skills @e[type=minecraft:zombie,limit=1] bow delete [lineShootChance,linePower]
+/pmb skills skill @e[type=minecraft:zombie,limit=1] bow append [enable=1b,doConsume=1b,modePriority="arc",mobileWhileShooting=1b,lineMinRange=0.0f,lineMaxRange=14.0f,lineSafeDistance=6.0f,lineCooldownTicks=30,lineShootChance=0.8f,lineShootAccuracy=1.0f,lineChargeTicks=10,linePower=0.8f,arcMinRange=12.0f,arcMaxRange=64.0f,arcSafeDistance=10.0f,arcCooldownTicks=50,arcShootChance=0.6f,arcShootAccuracy=0.95f,arcChargeTicks=20,arcAngle=60.0f,arcMaxPower=1.25f]
+/pmb skills skill @e[type=minecraft:zombie,limit=1] bow insert [FetchSource=["mainhand","inventory:1..9","inventory:7..16"]]
+/pmb skills skill @e[type=minecraft:zombie,limit=1] bow modify [lineShootChance=1.0f]
+/pmb skills skill @e[type=minecraft:zombie,limit=1] bow delete [lineShootChance,linePower]
 ```
+
+## Per-strategy skill priority and preemption
+
+`26.9.17-1` adds per-strategy priority lists. A quoted skill ID forms one strict tier; a nested list forms one equal tier. Two or more equal-tier candidates whose fixed trigger conditions and cooldowns are ready form a contested set when they compete for the tick's single commit or a required resource. The round-robin cursor chooses the first probability check; checks then proceed in order until one commits, later candidates are not checked, and only a successful contested commit advances the cursor to the skill after the actual winner. Omitted skills cannot start in that strategy. `vanilla` must occur exactly once and marks the ordinary combat navigation and standard melee boundary.
+
+```text
+PmbAi:{skillPriorities:{combat:["mace","ender_pearl","wind_charge","air_tracking","bow","shield","vanilla"],retreat:["ender_pearl","wind_charge","air_tracking","vanilla"],idle:["vanilla"]}}
+```
+
+```mcfunction
+/pmb skills priority @e[type=minecraft:zombie,limit=1] get all
+/pmb skills priority @e[type=minecraft:zombie] set combat ["mace",["ender_pearl","bow"],"wind_charge","shield","vanilla"]
+/pmb skills priority @e[type=minecraft:zombie] reset combat
+/pmb skills priority @e[type=minecraft:zombie] reset all
+```
+
+At most one new action or irreversible completion commits each tick. Chance and cooldown occur before resource arbitration. Final validation and the complete preemption plan occur before an incumbent is cancelled. Only a strictly higher tier can preempt a conflicting required resource; equal tiers do not preempt running phases. Optional resources never block required resources and are offered again each tick. A preempted skill retains its remaining cooldown and is neither cached nor automatically resumed.
+
+Changing strategy or authority revalidates each active phase; a phase that remains listed and valid continues without blanket cancellation. BLOCKED, death, NoAI, omission, or phase-local invalidation still cancels it. Standard vanilla melee is finally rechecked for current melee reach and sensing line of sight. Read-only item, binding, and ammunition plans complete before preemption; an impossible failure while committing afterward stops the tick and is exposed as `COMMIT_FAILED_AFTER_PREEMPT` when an incumbent was already cancelled.
+
+`NAVIGATION` is the sole movement-decision resource and includes an explicit hold-still decision. Bow charge owns it while holding, retreating, or strafing. Independent `air_tracking` owns `NAVIGATION` and optionally uses `LOOK`; mace itself does not own it, preserving wind-burst mace combinations. `vanilla` covers normal Goal/Brain combat movement and standard melee, but not special attacks, ranged attacks, spells, explosions, or beams.
+
+## Independent air tracking
+
+`air_tracking` is a separately configured skill, not a wind-charge field. It selects the first valid source from its ordered `activationSkills` list. A wind bounce is a latched source: after a successful bounce it remains eligible across ascent and descent even though wind's instant action has ended. Mace is conditional: a usable enabled mace, falling Mob, current authority target, and target inside FOLLOW_RANGE provide a source before `smashRange`. Any other listed registered skill is generic and is eligible while its sustained scheduler phase is active. Higher listed valid sources immediately supersede lower sources; when the higher source becomes invalid, the lower source is considered again on the next tick.
+
+`trackDurationTicks:-1` continues to landing, water, invalid source/target, strategy omission, or navigation preemption. `0` permits the source action but creates no tracking session; a positive value supplies exactly that many actual control ticks. `requireEyeSight:1b` requires sight only when a source session begins; later temporary loss does not cancel it. Tracking preserves Y velocity, applies `trackAcceleration` horizontally toward the target (away from an evasive wind threat), and caps horizontal velocity at `trackMaxHorizontalSpeed`. It requires `NAVIGATION` and only turns when optional `LOOK` is available. Landing sound and fall-immunity from wind bounce remain independent.
 
 Skill compounds are now saved sparsely: an existing child node and the ordered canonical fields actually present in it define node existence and explicit fields. Empty nodes, partial configurations, direct `/summon` data, and later `/data merge` or `/data remove` edits therefore retain their meaning across save and reload. Older full compounds are interpreted as having every present canonical field explicitly written; supported legacy aliases map to their canonical field when read.
 
@@ -49,11 +76,11 @@ Skill compounds are now saved sparsely: an existing child node and the ordered c
 
 The client key `K` (rebindable as **Print PMB Skill Debug Snapshot** under Controls) sends one diagnostic request for the entity under the crosshair. The request is accepted only from a player with gamemaster permission level 2, only for a visible Mob in the same level and inside the player's entity interaction range, and only when that Mob has configured PmbAi skill data. Requests are limited to one every 250 milliseconds per player. The same report is written to the server console/log and shown only in the requesting player's chat as one multiline vanilla system message. It is not broadcast, uses no custom S2C debug payload, and does not synchronize complete PmbAi configuration to the client.
 
-The report is an immutable copy of the most recently completed PMB skill tick and includes `ageTicks`. After entity identity, its sections are ordered as `MELEE`, `SKILLS`, `LAST ATTEMPTS`, `RESOURCES`, `BINDINGS`, and `CONTEXT`, so ordinary-melee suppression is an immediate high-priority warning. `SKILLS` lists only skills whose resolved `enable` value is true; configured-but-disabled and unconfigured skills are hidden. Each listed skill shows its active/ready state, cooldowns, and relevant runtime state. The remaining sections record candidate admission results; sustained and final resource owners; action bindings; the unique strategy and authority target; actual vanilla item-use hand; and the independently applied locomotion, hard-stop, and velocity-modifier result.
+The report is an immutable copy of the most recently completed PMB skill tick and includes `ageTicks`. After entity identity, its sections are ordered as `MELEE`, `PRIORITY`, `ACTIVE PHASES`, `LAST PREEMPTION`, `SKILLS`, `LAST ATTEMPTS`, `RESOURCES`, `BINDINGS`, and `CONTEXT`, so ordinary-melee suppression is an immediate high-priority warning. `PRIORITY` shows the unique strategy, whether its list came from defaults or an entity override, and the effective tiers. `ACTIVE PHASES` separates required and optional resources, while `LAST PREEMPTION` identifies the most recent phase handoff. `SKILLS` lists only skills whose resolved `enable` value is true; configured-but-disabled and unconfigured skills are hidden. Each listed skill shows its active/ready state, cooldowns, and relevant runtime state. The remaining sections record candidate admission results; sustained and final resource owners; action bindings; the authority target; actual vanilla item-use hand; and the independently applied locomotion, hard-stop, and velocity-modifier result.
 
-Empty sections remain explicit as `SKILLS: []`, `LAST ATTEMPTS: []`, `RESOURCES: {}`, and `BINDINGS: []`, so an empty result cannot be mistaken for a truncated report. The server log stays in stable English technical text. Chat headings and status labels are localized by the receiving client; active/success, waiting, blocked/suppressed, secondary details, and the title use distinct colors while IDs and diagnostic field names remain technical.
+Empty sections remain explicit as `ACTIVE PHASES: []`, `SKILLS: []`, `LAST ATTEMPTS: []`, `RESOURCES: {}`, and `BINDINGS: []`, so an empty result cannot be mistaken for a truncated report. With no preemption, `LAST PREEMPTION` displays `none` in the server log and `-` in chat. The server log stays in stable English technical text. Chat headings and status labels are localized by the receiving client; active/success, waiting, blocked/suppressed, secondary details, and the title use distinct colors while IDs and diagnostic field names remain technical.
 
-`activeThisTick` means that the skill owned a sustained resource at the start of the recorded tick or that its admitted candidate reached a real execution point during that tick. Candidate results distinguish `PRECLAIM_REJECTED`, `RESOURCE_BLOCKED` with the blocking resource and owner, `ADMITTED+FINAL_REJECTED`, and `ADMITTED+EXECUTED`. The probe observes already-computed results: it does not repeat chance rolls, final checks, resource arbitration, item swaps, or actions. A configured Mob without a completed snapshot reports `SNAPSHOT: unavailable` in the log and its localized equivalent in chat.
+`activeThisTick` means that the skill owned a sustained resource at the start of the recorded tick or that its admitted candidate reached a real execution point during that tick. Candidate results distinguish `PRECLAIM_REJECTED`, `RESOURCE_BLOCKED` with the blocking resource and owner, `ADMITTED+FINAL_REJECTED`, `COMMIT_FAILED`, `COMMIT_FAILED_AFTER_PREEMPT`, and `ADMITTED+EXECUTED`. Wind state additionally reports tracking as inactive, infinite, or a remaining tick count plus its latest clear reason. The probe observes already-computed results: it does not repeat chance rolls, final checks, resource arbitration, item swaps, or actions. A configured Mob without a completed snapshot reports `SNAPSHOT: unavailable` in the log and its localized equivalent in chat.
 
 ## Dynamic Factions
 
@@ -254,7 +281,6 @@ Member assignment requires an existing faction and a selection containing only L
                     FetchSource: [<string>, ...],
                     preferredHand: <string>,
                     doConsume: <bool>,
-                    inAirTrackStrength: <float>,
                     throwRange: <float>,
                     throwChance: <float>,
                     throwCooldownTicks: <int>,
@@ -263,6 +289,15 @@ Member assignment requires an existing faction and a selection containing only L
                     bounceChance: <float>,
                     bounceCooldownTicks: <int>,
                     randomCooldownBias: <int>
+                },
+            air_tracking:
+                {
+                    enable: <bool>,
+                    activationSkills: [<string>, ...],
+                    trackAcceleration: <float>,
+                    trackMaxHorizontalSpeed: <float>,
+                    trackDurationTicks: <int>,
+                    requireEyeSight: <bool>
                 },
             ender_pearl:
                 {
@@ -327,6 +362,7 @@ Member assignment requires an existing faction and a selection containing only L
 		{
 			Slots: <int>,
 			DropChance: <float>,
+			ScatterDrops: <bool>,
 			Items: [{Slot: <int>, id: <item id>, count: <int>}, ...]
 		}
 }
@@ -340,7 +376,7 @@ The default conflict category order is `main > off > throw > food > block` in co
 
 Wind-charge bounce keeps its existing bounce-first and failed-bounce fall-through behavior. Continued flight owns LOOK, while airborne horizontal tracking submits an independent velocity modifier. Flight does not reserve a hand, USE_ITEM, or SMASH. NAVIGATION is no longer an exclusive skill resource.
 
-Each skill accepts the optional ordered FetchSource string list: mainhand, offhand, inventory, inventory:1, or inclusive ranges such as inventory:1..9. Public slots are 1–27 and ranges may overlap. The destination hand is selected first. A compatible item already there is used directly without consulting FetchSource; otherwise sources are scanned in list order and slots in ascending order. Omission uses the previous source-hand order. An empty or invalid list offers no fetch locations but does not disable a compatible item already in the destination hand.
+Each skill accepts the optional ordered FetchSource string list: mainhand, offhand, inventory, inventory:1, or inclusive ranges such as inventory:1..9. Public slots are 1–256 and ranges may overlap. The destination hand is selected first. A compatible item already there is used directly without consulting FetchSource; otherwise sources are scanned in list order and slots in ascending order. Omission uses the previous source-hand order. An empty or invalid list offers no fetch locations but does not disable a compatible item already in the destination hand.
 
 bow, shield, wind_charge and ender_pearl support preferredHand: main, off, main-enforce, or off-enforce. Bow defaults to main; the other three default to off. Mace does not accept this field and executes in mainhand. At action startup only, plain main/off may fall back when the preferred hand belongs to an ongoing PMB action. Static held items do not block a hand. Enforced preferences fail when their hand is busy. A same-tick arbitration loss never retries another hand.
 
@@ -355,7 +391,7 @@ Movement is resolved separately: shield-vulnerability HARD_STOP, retreat locomot
 Example (insert into an existing bow node; use modify for fields already written):
 
 ```text
-/pmb skills @n[type=husk] bow insert [preferredHand="off-enforce",FetchSource=["mainhand","inventory:1..9"],AmmoSource=["inventory:1..9"]]
+/pmb skills skill @n[type=husk] bow insert [preferredHand="off-enforce",FetchSource=["mainhand","inventory:1..9"],AmmoSource=["inventory:1..9"]]
 ```
 
 `PmbInventory` belongs only to Mob entities and is independent of `PmbAi`:
@@ -364,13 +400,14 @@ Example (insert into an existing bow node; use modify for fields already written
 PmbInventory:{
     Slots:<int>,
     DropChance:<float>,
+    ScatterDrops:<bool>,
     Items:[
         {Slot:<int>,id:<item id>,count:<int>}
     ]
 }
 ```
 
-`Slots` has range `[0,27]` and default `0`; `DropChance` has range `[0.0f,1.0f]` and default `0.5f`. Each enabled, non-empty slot rolls independently on death and a successful roll drops the entire stack. With `doMobLoot:false`, no PMB inventory items drop. Reducing `Slots` first merges or moves high-slot contents into enabled low slots, then immediately drops full remainders. Invalid slot numbers outside 1–27 are ignored.
+`Slots` has range `[0,256]` and default `0`; its backing container is allocated to that actual capacity, so `Slots:0` allocates no inventory entries. `DropChance` has range `[0.0f,1.0f]` and default `0.5f`; `ScatterDrops` is a boolean and defaults to `0b`. Each enabled, non-empty slot rolls independently on death and a successful roll drops the entire stack. With `ScatterDrops:0b`, that stack uses the existing stationary PMB drop; with `ScatterDrops:1b`, it uses the vanilla player-style death-drop path from `eyeY - 0.3`, with a random radial horizontal speed in `[0.0,0.5)`, vertical speed `0.2`, and a 40-tick pickup delay. The stack remains intact: this option neither damages nor splits it. With `doMobLoot:false`, no PMB inventory items drop. Reducing `Slots` first merges or moves high-slot contents into enabled low slots, then immediately drops full remainders. `ScatterDrops` affects only successful PMB inventory death drops, not resize/load overflow or held equipment. Invalid slot numbers outside 1–256 are ignored. Existing 0–27-slot data loads unchanged; downgrading data that uses slots 28–256 to an older PMB version loses those high-slot items.
 
 When `CanPickUpLoot:1b` and `mobGriefing:true`, vanilla equipment and species-specific pickup logic runs first. A nearby item stack left on the ground is then merged into PmbInventory like a player inventory; a full inventory leaves the remainder on the ground. This does not add item-seeking navigation or a GUI.
 
@@ -379,7 +416,7 @@ When bow `AmmoSource` is omitted, supported ammunition held in either hand has p
 Example:
 
 ```text
-summon zombie ~ ~ ~ {CanPickUpLoot:1b,PmbInventory:{Slots:9,DropChance:0.5f,Items:[{Slot:1,id:"minecraft:mace",count:1},{Slot:2,id:"minecraft:wind_charge",count:16}]},PmbAi:{mace:{enable:1b,FetchSource:["mainhand","inventory:1..9"]},wind_charge:{enable:1b,FetchSource:["offhand","inventory:1..9"],doConsume:1b}}}
+summon zombie ~ ~ ~ {CanPickUpLoot:1b,PmbInventory:{Slots:9,DropChance:0.5f,ScatterDrops:1b,Items:[{Slot:1,id:"minecraft:mace",count:1},{Slot:2,id:"minecraft:wind_charge",count:16}]},PmbAi:{mace:{enable:1b,FetchSource:["mainhand","inventory:1..9"]},wind_charge:{enable:1b,FetchSource:["offhand","inventory:1..9"],doConsume:1b}}}
 ```
 
 Skill-check cooldowns persist and account for elapsed world time. Sustained actions do not resume, while the permanent equipment layout is saved normally. Old PmbSwapJournal entries receive a one-time load recovery only when both snapshots match. Changed slots are not overwritten; new swaps write no recovery journal and retain no pending restoration lease.
@@ -440,9 +477,7 @@ doConsume controls consumption for both throw and bounce mode. By default, the h
 
 The downward bounce uses the vanilla living-entity impulse fall-protection context. Returning to the height where the wind-charge impulse occurred does not deal fall damage from that launch. If the mob lands below the launch point, only the additional drop below that height can still deal normal fall damage. Once the mob has actually left the ground after this bounce and lands again, the server plays the vanilla player's no-damage landing sound once. Never leaving the ground, dying, or using throw mode alone does not trigger it.
 
-After being launched by its own wind charge, the mob remembers that target for up to 60 game ticks. A normal combat bounce restores an attack target temporarily cleared by vanilla airborne pathfinding and applies small, limited targetward acceleration controlled by inAirTrackStrength. A Faction evasive bounce never writes an attack target and instead applies the same limited acceleration away from the threat. Both preserve gravity, wind-charge launch velocity, and existing horizontal inertia rather than replacing movement with conspicuous tracking velocity. A value of 0.0 adds no horizontal steering acceleration.
-
-After the initial downward bounce pose ends, a combat bounce continuously aligns the mob's view, head, and body with the target, while an evasive bounce faces along the direction away from the threat. If a combat-bouncing mob starts a melee attack before the downward pose ends, that pose ends immediately and it faces the entity it is actually attacking, preventing hits while visibly facing away. Facing correction is independent of inAirTrackStrength. The tracking state clears when the mob lands, the target becomes invalid, or the time expires. Consuming the final wind charge with doConsume does not prematurely cancel airborne steering that has already begun.
+Airborne follow-up after a wind bounce is controlled by independent `air_tracking`, not wind-charge fields. Consuming the final wind charge does not cancel an already-latched session.
 
 A grounded bounce retains its existing two-tick launch grace. On the first tick that meets the landing termination boundary, it releases LOOK before scheduler arbitration and before writing pose or look state, so an ended bounce cannot reject another otherwise valid skill check.
 
@@ -456,7 +491,6 @@ wind_charge:
         FetchSource: [<string>, ...],
         preferredHand: <string>,
         doConsume: <bool>,
-        inAirTrackStrength: <float>,
         throwRange: <float>,
         throwChance: <float>,
         throwCooldownTicks: <int>,
@@ -483,7 +517,7 @@ Default: 0b
 FetchSource
 Meaning: Ordered locations allowed to provide this skill's required item
 Type: list of strings
-Range: mainhand, offhand, inventory, inventory:1 through inventory:27, or inclusive ranges such as inventory:1..9
+Range: mainhand, offhand, inventory, inventory:1 through inventory:256, or inclusive ranges such as inventory:1..9
 Default: omitted; uses this skill's legacy source-hand order
 Note: Used only when the destination hand lacks a suitable item; empty/invalid lists supply no fetch location
 
@@ -493,13 +527,6 @@ Type: bool
 Range: 0b, 1b
 Default: 0b
 Note: Controls both modes and consumes from the hand actually holding the wind charge when the action triggers
-
-inAirTrackStrength
-Meaning: Maximum horizontal acceleration added toward the target each game tick after a downward self-bounce
-Type: float
-Range: [0.0f, 1.0f]
-Default: 0.012f
-Note: Added only while targetward horizontal velocity is below an internal threshold; 0.0 disables horizontal tracking but does not disable facing the target while airborne
 
 throwRange
 Meaning: Maximum target distance for throw mode; line of sight is also required
@@ -573,7 +600,7 @@ Summon a zombie holding a wind charge in its off hand and using all default wind
 summon zombie ~ ~ ~ {PmbAi:{wind_charge:{enable:1b}}, equipment:{mainhand:{id:iron_sword}, offhand:{id:wind_charge}}}
 
 Summon a zombie that throws perfectly accurate wind charges and always uses a wind-charge bounce to pursue nearby targets. Each successful use consumes one wind charge.
-summon zombie ~ ~ ~ {PmbAi:{wind_charge:{enable:1b, doConsume:1b, inAirTrackStrength:0.012f, throwRange:24.0f, throwChance:1.0f, throwCooldownTicks:40, throwAccuracy:1.0f, bounceRange:6.0f, bounceChance:1.0f, bounceCooldownTicks:60}}, equipment:{mainhand:{id:wind_charge,count:64}}}
+summon zombie ~ ~ ~ {PmbAi:{wind_charge:{enable:1b, doConsume:1b, throwRange:24.0f, throwChance:1.0f, throwCooldownTicks:40, throwAccuracy:1.0f, bounceRange:6.0f, bounceChance:1.0f, bounceCooldownTicks:60},air_tracking:{enable:1b,activationSkills:["wind_charge","mace"],trackAcceleration:0.012f,trackMaxHorizontalSpeed:0.3f,trackDurationTicks:-1,requireEyeSight:1b}}, equipment:{mainhand:{id:wind_charge,count:64}}}
 
 Disable wind-charge AI on the nearest zombie without removing its other configured parameters.
 data merge entity @e[type=zombie,sort=nearest,limit=1] {PmbAi:{wind_charge:{enable:0b}}}
@@ -641,7 +668,7 @@ Default: 0b
 FetchSource
 Meaning: Ordered locations allowed to provide this skill's required item
 Type: list of strings
-Range: mainhand, offhand, inventory, inventory:1 through inventory:27, or inclusive ranges such as inventory:1..9
+Range: mainhand, offhand, inventory, inventory:1 through inventory:256, or inclusive ranges such as inventory:1..9
 Default: omitted; uses this skill's legacy source-hand order
 Note: Used only when the destination hand lacks a suitable item; empty/invalid lists supply no fetch location
 
@@ -796,7 +823,7 @@ Default: 0b
 FetchSource
 Meaning: Ordered locations allowed to provide this skill's required item
 Type: list of strings
-Range: mainhand, offhand, inventory, inventory:1 through inventory:27, or inclusive ranges such as inventory:1..9
+Range: mainhand, offhand, inventory, inventory:1 through inventory:256, or inclusive ranges such as inventory:1..9
 Default: omitted; uses this skill's legacy source-hand order
 Note: Used only when the destination hand lacks a suitable item; empty/invalid lists supply no fetch location
 
@@ -928,14 +955,14 @@ Default: 0b
 FetchSource
 Meaning: Ordered locations allowed to provide this skill's required item
 Type: list of strings
-Range: mainhand, offhand, inventory, inventory:1 through inventory:27, or inclusive ranges such as inventory:1..9
+Range: mainhand, offhand, inventory, inventory:1 through inventory:256, or inclusive ranges such as inventory:1..9
 Default: omitted; uses this skill's legacy source-hand order
 Note: Used only when the destination hand lacks a suitable item; empty/invalid lists supply no fetch location
 
 AmmoSource
 Meaning: Ordered locations from which bow AI may read real supported arrows
 Type: list of strings
-Range: mainhand, offhand, inventory, inventory:1 through inventory:27, or inclusive ranges such as inventory:1..9
+Range: mainhand, offhand, inventory, inventory:1 through inventory:256, or inclusive ranges such as inventory:1..9
 Default: omitted; supported arrows in either hand first, then enabled PmbInventory slots from low to high
 Note: It only scans ammunition and never exchanges it. An explicit empty or invalid list supplies no real arrow; FetchSource does not constrain ammunition
 
@@ -1185,7 +1212,7 @@ Default: 0b
 FetchSource
 Meaning: Ordered locations allowed to provide this skill's required item
 Type: list of strings
-Range: mainhand, offhand, inventory, inventory:1 through inventory:27, or inclusive ranges such as inventory:1..9
+Range: mainhand, offhand, inventory, inventory:1 through inventory:256, or inclusive ranges such as inventory:1..9
 Default: omitted; uses this skill's legacy source-hand order
 Note: Used only when the destination hand lacks a suitable item; empty/invalid lists supply no fetch location
 

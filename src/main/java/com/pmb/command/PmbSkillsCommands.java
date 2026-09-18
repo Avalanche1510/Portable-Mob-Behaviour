@@ -13,6 +13,7 @@ import com.pmb.ai.PmbShieldVulnerableHolder;
 import com.pmb.ai.PmbSkillConfigData;
 import com.pmb.ai.PmbSkillHooks;
 import com.pmb.ai.PmbSkillScheduler;
+import com.pmb.ai.PmbSkillPriorities;
 import com.pmb.ai.PmbSkillSchema;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -40,15 +41,41 @@ public final class PmbSkillsCommands {
 	public static void initialize() {
 		ArgumentTypeRegistry.registerArgumentType(PortableMobBehaviour.id("skill_parameters"),
 				PmbSkillParametersArgument.class, new PmbSkillParametersArgument.Info());
+		ArgumentTypeRegistry.registerArgumentType(PortableMobBehaviour.id("priority_list"),
+				PmbPriorityListArgument.class, new PmbPriorityListArgument.Info());
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> register(dispatcher));
 	}
 
 	private static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
-		RequiredArgumentBuilder<CommandSourceStack, ?> targets = Commands.argument("targets", EntityArgument.entities());
-		for (PmbSkillSchema schema : PmbSkillSchema.all()) targets.then(skillBranch(schema));
+		RequiredArgumentBuilder<CommandSourceStack, ?> skillTargets = Commands.argument("targets", EntityArgument.entities());
+		for (PmbSkillSchema schema : PmbSkillSchema.all()) skillTargets.then(skillBranch(schema));
+		RequiredArgumentBuilder<CommandSourceStack, ?> priorityTargets = Commands.argument("targets", EntityArgument.entities());
+		priorityTargets.then(priorityGetBranch()).then(prioritySetBranch()).then(priorityResetBranch());
 		dispatcher.register(Commands.literal("pmb")
 				.requires(source -> source.permissions().hasPermission(Permissions.COMMANDS_GAMEMASTER))
-				.then(Commands.literal("skills").then(targets)));
+				.then(Commands.literal("skills")
+						.then(Commands.literal("skill").then(skillTargets))
+						.then(Commands.literal("priority").then(priorityTargets))));
+	}
+	private static LiteralArgumentBuilder<CommandSourceStack> priorityGetBranch() {
+		LiteralArgumentBuilder<CommandSourceStack> get = Commands.literal("get");
+		for (String name : List.of("combat", "retreat", "idle", "all"))
+			get.then(Commands.literal(name).executes(context -> priorityGet(context.getSource(), entities(context), name)));
+		return get;
+	}
+	private static LiteralArgumentBuilder<CommandSourceStack> prioritySetBranch() {
+		LiteralArgumentBuilder<CommandSourceStack> set = Commands.literal("set");
+		for (String name : List.of("combat", "retreat", "idle"))
+			set.then(Commands.literal(name).then(Commands.argument("priorities", new PmbPriorityListArgument())
+					.executes(context -> prioritySet(context.getSource(), entities(context), name,
+							PmbPriorityListArgument.get(context, "priorities")))));
+		return set;
+	}
+	private static LiteralArgumentBuilder<CommandSourceStack> priorityResetBranch() {
+		LiteralArgumentBuilder<CommandSourceStack> reset = Commands.literal("reset");
+		for (String name : List.of("combat", "retreat", "idle", "all"))
+			reset.then(Commands.literal(name).executes(context -> priorityReset(context.getSource(), entities(context), name)));
+		return reset;
 	}
 
 	private static LiteralArgumentBuilder<CommandSourceStack> skillBranch(PmbSkillSchema schema) {
@@ -145,6 +172,58 @@ public final class PmbSkillsCommands {
 		source.sendSuccess(() -> Component.literal(schema.id() + " explicit=" + explicit + " values={" + String.join(", ", values) + "}"), false);
 		return 1;
 	}
+	private static int prioritySet(CommandSourceStack source, Collection<? extends Entity> entities, String name,
+			List<List<String>> tiers) throws CommandSyntaxException {
+		PmbSkillScheduler.Strategy strategy = strategy(name);
+		List<Mob> mobs = mobs(entities);
+		for (Mob mob : mobs) ((PmbAiHolder) mob).pmb$getAiData().skillPriorities().set(strategy, tiers);
+		for (Mob mob : mobs) ((PmbSchedulerHolder) mob).pmb$getSkillScheduler().resetPriorityRuntime(strategy);
+		source.sendSuccess(() -> Component.literal("Set " + name + " priorities to "
+				+ PmbSkillPriorities.toTag(tiers) + " for " + mobs.size() + " mob(s)"), true);
+		return mobs.size();
+	}
+	private static int priorityReset(CommandSourceStack source, Collection<? extends Entity> entities, String name)
+			throws CommandSyntaxException {
+		List<Mob> mobs = mobs(entities);
+		for (Mob mob : mobs) {
+			PmbSkillPriorities priorities = ((PmbAiHolder) mob).pmb$getAiData().skillPriorities();
+			PmbSkillScheduler scheduler = ((PmbSchedulerHolder) mob).pmb$getSkillScheduler();
+			if (name.equals("all")) { priorities.resetAll(); scheduler.resetPriorityRuntime(null); }
+			else { PmbSkillScheduler.Strategy strategy = strategy(name); priorities.reset(strategy); scheduler.resetPriorityRuntime(strategy); }
+		}
+		source.sendSuccess(() -> Component.literal("Reset " + name + " priorities for " + mobs.size() + " mob(s)"), true);
+		return mobs.size();
+	}
+	private static int priorityGet(CommandSourceStack source, Collection<? extends Entity> entities, String name)
+			throws CommandSyntaxException {
+		List<Mob> mobs = mobs(entities);
+		if (mobs.size() != 1) throw error("get requires exactly one Mob target");
+		PmbSkillPriorities priorities = ((PmbAiHolder) mobs.getFirst()).pmb$getAiData().skillPriorities();
+		List<String> strategies = name.equals("all") ? List.of("combat", "retreat", "idle") : List.of(name);
+		for (String selected : strategies) {
+			PmbSkillScheduler.Strategy strategy = strategy(selected);
+			String sourceName = priorities.hasOverride(strategy) ? "override" : "default";
+			source.sendSuccess(() -> Component.literal(selected + " (" + sourceName + "): "
+					+ PmbSkillPriorities.toTag(priorities.effective(strategy))), false);
+		}
+		return 1;
+	}
+	private static List<Mob> mobs(Collection<? extends Entity> entities) throws CommandSyntaxException {
+		List<Mob> result = new ArrayList<>();
+		for (Entity entity : entities) {
+			if (!(entity instanceof Mob mob)) throw error("Target is not a Mob: " + entity.getName().getString());
+			result.add(mob);
+		}
+		return result;
+	}
+	private static PmbSkillScheduler.Strategy strategy(String name) {
+		return switch (name) {
+			case "combat" -> PmbSkillScheduler.Strategy.COMBAT;
+			case "retreat" -> PmbSkillScheduler.Strategy.RETREAT;
+			case "idle" -> PmbSkillScheduler.Strategy.IDLE;
+			default -> throw new IllegalArgumentException(name);
+		};
+	}
 
 	private static void cancelSelected(Mob mob, String skill) {
 		PmbSkillScheduler scheduler = ((PmbSchedulerHolder) mob).pmb$getSkillScheduler();
@@ -154,6 +233,7 @@ public final class PmbSkillsCommands {
 			case "mace" -> ((PmbSkillHooks.Mace) mob).pmb$cancelMaceSkill();
 			case "bow" -> ((PmbSkillHooks.Bow) mob).pmb$cancelBowSkill();
 			case "ender_pearl" -> ((PmbSkillHooks.Pearl) mob).pmb$cancelPearlSkill();
+			case "air_tracking" -> scheduler.airTracking().clear("configuration_changed");
 			default -> throw new IllegalArgumentException(skill);
 		}
 		scheduler.release(mob, skill.equals("wind_charge") ? "wind" : skill.equals("ender_pearl") ? "pearl" : skill);

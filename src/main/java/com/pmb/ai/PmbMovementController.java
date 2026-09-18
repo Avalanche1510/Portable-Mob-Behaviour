@@ -57,6 +57,9 @@ public final class PmbMovementController {
 			return;
 		}
 		intents.removeIf(intent -> mob.tickCount - intent.epoch() > 1 || !intent.valid().getAsBoolean());
+		String navigationOwner = scheduler.navigationOwner();
+		if (navigationOwner != null)
+			intents.removeIf(intent -> !intent.owner().equals(navigationOwner));
 		Comparator<Intent> order = Comparator.comparingInt((Intent intent) -> intent.tier().ordinal()).reversed()
 				.thenComparing(Comparator.comparingInt((Intent intent) -> scheduler.categoryPriority(intent.category())).reversed())
 				.thenComparing(Comparator.comparingInt(Intent::rank).reversed()).thenComparing(Intent::owner);

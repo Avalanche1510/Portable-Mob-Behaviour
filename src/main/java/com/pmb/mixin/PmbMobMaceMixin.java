@@ -86,18 +86,19 @@ public abstract class PmbMobMaceMixin extends LivingEntity implements PmbSkillHo
 						PmbSkillScheduler.Resource.OFF_HAND, PmbSkillScheduler.Resource.SMASH}
 				: new PmbSkillScheduler.Resource[] {PmbSkillScheduler.Resource.MAIN_HAND,
 						PmbSkillScheduler.Resource.SMASH};
-		PmbSkillScheduler.of(mob).offer("mace", "smash", PmbSkillScheduler.Category.MAIN, 20,
+		PmbSkillScheduler.of(mob).offerPlannedResult("mace", "smash", PmbSkillScheduler.Category.MAIN, 20,
 				() -> {
 					maceAi.resetSmashCooldown(getRandom());
 					return PmbSkillTiming.passesChance(getRandom(), maceAi.hitChance());
-				}, () -> {
-					if (!isAlive() || mob.isNoAi() || !pmb$isFallingForMaceSmash()
-							|| !target.isAlive() || mob.getTarget() != target || !mob.canAttack(target)
-							|| !hasLineOfSight(target) || distanceToSqr(target) > range * range) return;
+				}, () -> isAlive() && !mob.isNoAi() && pmb$isFallingForMaceSmash()
+							&& target.isAlive() && mob.getTarget() == target && mob.canAttack(target)
+							&& hasLineOfSight(target) && distanceToSqr(target) <= range * range
+							&& !scheduler.hasBinding("mace") && PmbSkillItemAccess.stillMatches(mob, item),
+				() -> {
 					PmbSkillItemAccess.ActionBinding lease = PmbSkillItemAccess.acquire(mob, item);
-					if (lease == null) return;
+					if (lease == null) return PmbSkillScheduler.CommitResult.FAILED;
 					if (!scheduler.bind("mace", lease)) {
-						return;
+						return PmbSkillScheduler.CommitResult.FAILED;
 					}
 					pmb$faceMaceTarget(mob, target);
 					swing(InteractionHand.MAIN_HAND, true);
@@ -111,6 +112,7 @@ public abstract class PmbMobMaceMixin extends LivingEntity implements PmbSkillHo
 						lease.authorizeAction(mob);
 						scheduler.release(mob, "mace");
 					}
+					return PmbSkillScheduler.CommitResult.COMMITTED;
 				}, resources);
 	}
 

@@ -110,6 +110,7 @@ public final class PmbSkillParametersArgument implements ArgumentType<PmbSkillPa
 				yield StringTag.valueOf(value);
 			}
 			case ACTIVATION_SOURCES, AMMO_SOURCES -> readSources(reader, field.name());
+			case SKILL_IDS -> readSkillIds(reader, field.name());
 		};
 	}
 
@@ -128,6 +129,24 @@ public final class PmbSkillParametersArgument implements ArgumentType<PmbSkillPa
 			if (!reader.canRead()) throw ERROR.createWithContext(reader, "Expected ',' or ']' in " + key);
 			char separator = reader.read();
 			if (separator == ']') break;
+			if (separator != ',') throw ERROR.createWithContext(reader, "Expected ',' or ']' in " + key);
+			skipWhitespace(reader);
+		}
+		return result;
+	}
+	private ListTag readSkillIds(StringReader reader, String key) throws CommandSyntaxException {
+		ListTag result = new ListTag(); java.util.HashSet<String> seen = new java.util.HashSet<>();
+		expect(reader, '[', "Expected '[' for " + key); skipWhitespace(reader);
+		if (reader.canRead() && reader.peek() == ']') { reader.skip(); return result; }
+		while (true) {
+			int start = reader.getCursor();
+			if (!reader.canRead() || reader.peek() != '"') failAt(reader, start, key + " entries must be quoted");
+			String value = reader.readQuotedString();
+			if (!PmbSkillSchema.isRegisteredSkill(value) || value.equals("air_tracking") || !seen.add(value))
+				failAt(reader, start, "Invalid " + key + " entry: " + value);
+			result.add(StringTag.valueOf(value)); skipWhitespace(reader);
+			if (!reader.canRead()) throw ERROR.createWithContext(reader, "Expected ',' or ']' in " + key);
+			char separator = reader.read(); if (separator == ']') break;
 			if (separator != ',') throw ERROR.createWithContext(reader, "Expected ',' or ']' in " + key);
 			skipWhitespace(reader);
 		}
@@ -183,7 +202,8 @@ public final class PmbSkillParametersArgument implements ArgumentType<PmbSkillPa
 			case STRING -> field.choices().stream().map(value -> "\"" + value + "\"").filter(value -> value.startsWith(prefix)).forEach(builder::suggest);
 			case INTEGER, FLOAT -> { if (field.defaultText().startsWith(prefix)) builder.suggest(field.defaultText(), Component.literal(field.description())); }
 			case ACTIVATION_SOURCES, AMMO_SOURCES -> {
-				String[] choices = {"\"mainhand\"", "\"offhand\"", "\"inventory\"", "\"inventory:1..9\"", "\"inventory:7..16\""};
+				String[] choices = {"\"mainhand\"", "\"offhand\"", "\"inventory\"", "\"inventory:1..9\"",
+						"\"inventory:7..16\"", "\"inventory:256\""};
 				int leadingWhitespace = leadingWhitespace(remaining);
 				String sourceText = remaining.substring(leadingWhitespace);
 				int sourceBase = builder.getStart() + leadingWhitespace;
@@ -200,6 +220,20 @@ public final class PmbSkillParametersArgument implements ArgumentType<PmbSkillPa
 				}
 				result = sourceBuilder;
 			}
+			case SKILL_IDS -> {
+				String[] choices = PmbSkillSchema.all().stream().map(PmbSkillSchema::id)
+						.filter(id -> !id.equals("air_tracking")).toArray(String[]::new);
+				int leadingWhitespace = leadingWhitespace(remaining); String listText = remaining.substring(leadingWhitespace);
+				int base = builder.getStart() + leadingWhitespace; int entry = sourceEntryOffset(listText);
+				String prefixEntry = listText.substring(entry);
+				SuggestionsBuilder listBuilder;
+				if (isCompleteSkillId(prefixEntry.trim())) {
+					listBuilder = builder.createOffset(base + listText.length()); listBuilder.suggest(","); listBuilder.suggest("]");
+				} else { listBuilder = builder.createOffset(base + entry);
+					for (String choice : choices) { String quoted = "\"" + choice + "\""; if (quoted.startsWith(prefixEntry)) listBuilder.suggest(quoted); }
+				}
+				result = listBuilder;
+			}
 		}
 		return result;
 	}
@@ -215,6 +249,11 @@ public final class PmbSkillParametersArgument implements ArgumentType<PmbSkillPa
 			String value = reader.readQuotedString();
 			return !reader.canRead() && PmbSkillSchema.validSource(value);
 		} catch (CommandSyntaxException ignored) { return false; }
+	}
+	private static boolean isCompleteSkillId(String text) {
+		try { StringReader reader = new StringReader(text); if (!reader.canRead() || reader.peek() != '"') return false;
+			String value = reader.readQuotedString(); return !reader.canRead() && PmbSkillSchema.isRegisteredSkill(value)
+					&& !value.equals("air_tracking"); } catch (CommandSyntaxException ignored) { return false; }
 	}
 	private static int sourceEntryOffset(String text) {
 		int offset = text.startsWith("[") ? 1 : 0; boolean quoted = false;

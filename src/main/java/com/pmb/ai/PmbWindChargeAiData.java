@@ -24,7 +24,6 @@ public class PmbWindChargeAiData implements PmbSkillConfigData {
 	private static final float DEFAULT_BOUNCE_CHANCE = 0.35F;
 	private static final int DEFAULT_BOUNCE_COOLDOWN_TICKS = 40;
 	private static final boolean DEFAULT_DO_CONSUME = false;
-	private static final float DEFAULT_IN_AIR_TRACK_STRENGTH = 0.012F;
 	private static final int MAX_COOLDOWN_TICKS = 72000;
 
 	private boolean configured;
@@ -40,7 +39,6 @@ public class PmbWindChargeAiData implements PmbSkillConfigData {
 	private float bounceChance = DEFAULT_BOUNCE_CHANCE;
 	private int bounceCooldownTicks = DEFAULT_BOUNCE_COOLDOWN_TICKS;
 	private boolean doConsume = DEFAULT_DO_CONSUME;
-	private float inAirTrackStrength = DEFAULT_IN_AIR_TRACK_STRENGTH;
 	private int randomCooldownBias = PmbSkillTiming.DEFAULT_RANDOM_COOLDOWN_BIAS;
 	private int throwCooldown;
 	private int bounceCooldown;
@@ -88,9 +86,6 @@ public class PmbWindChargeAiData implements PmbSkillConfigData {
 		return doConsume;
 	}
 
-	public float inAirTrackStrength() {
-		return inAirTrackStrength;
-	}
 	public int randomCooldownBias() { return randomCooldownBias; }
 
 	public boolean canCheckThrow() {
@@ -139,7 +134,7 @@ public class PmbWindChargeAiData implements PmbSkillConfigData {
 		if (windChargeInput.contains("preferredHand")) explicitFields.add("preferredHand");
 		if (fetchSource.isExplicit()) explicitFields.add("FetchSource");
 		for (String key : new String[] {"enable", "throwRange", "throwChance", "throwCooldownTicks", "throwAccuracy",
-				"bounceRange", "bounceChance", "bounceCooldownTicks", "doConsume", "inAirTrackStrength", "randomCooldownBias"})
+				"bounceRange", "bounceChance", "bounceCooldownTicks", "doConsume", "randomCooldownBias"})
 			if (PmbAiNbtReader.hasField(windChargeInput, key)) explicitFields.add(key);
 		enabled = getBooleanOr(windChargeInput, "enable", false);
 		throwRange = clamp(getFloatOr(windChargeInput, "throwRange", DEFAULT_THROW_RANGE), 0.0F, 64.0F);
@@ -152,8 +147,6 @@ public class PmbWindChargeAiData implements PmbSkillConfigData {
 		bounceCooldownTicks = clamp(getIntOr(windChargeInput, "bounceCooldownTicks",
 				DEFAULT_BOUNCE_COOLDOWN_TICKS), 0, MAX_COOLDOWN_TICKS);
 		doConsume = getBooleanOr(windChargeInput, "doConsume", DEFAULT_DO_CONSUME);
-		inAirTrackStrength = clamp(getFloatOr(windChargeInput, "inAirTrackStrength",
-				DEFAULT_IN_AIR_TRACK_STRENGTH), 0.0F, 1.0F);
 		randomCooldownBias = clamp(getIntOr(windChargeInput, "randomCooldownBias",
 				PmbSkillTiming.DEFAULT_RANDOM_COOLDOWN_BIAS), 0, PmbSkillTiming.MAX_RANDOM_COOLDOWN_BIAS);
 		throwCooldown = 0;
@@ -172,7 +165,6 @@ public class PmbWindChargeAiData implements PmbSkillConfigData {
 		if (explicitFields.contains("bounceChance")) output.putFloat("bounceChance", bounceChance);
 		if (explicitFields.contains("bounceCooldownTicks")) output.putInt("bounceCooldownTicks", bounceCooldownTicks);
 		if (explicitFields.contains("doConsume")) output.putBoolean("doConsume", doConsume);
-		if (explicitFields.contains("inAirTrackStrength")) output.putFloat("inAirTrackStrength", inAirTrackStrength);
 		if (explicitFields.contains("randomCooldownBias")) output.putInt("randomCooldownBias", randomCooldownBias);
 	}
 
@@ -192,7 +184,6 @@ public class PmbWindChargeAiData implements PmbSkillConfigData {
 		bounceChance = DEFAULT_BOUNCE_CHANCE;
 		bounceCooldownTicks = DEFAULT_BOUNCE_COOLDOWN_TICKS;
 		doConsume = DEFAULT_DO_CONSUME;
-		inAirTrackStrength = DEFAULT_IN_AIR_TRACK_STRENGTH;
 		randomCooldownBias = PmbSkillTiming.DEFAULT_RANDOM_COOLDOWN_BIAS;
 		throwCooldown = 0;
 		bounceCooldown = 0;

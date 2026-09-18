@@ -18,5 +18,12 @@
   "debug.portable-mob-behaviour.status.resource_blocked": "资源冲突",
   "debug.portable-mob-behaviour.status.admitted": "已获准",
   "debug.portable-mob-behaviour.status.admitted.final_rejected": "最终检查失败",
-  "debug.portable-mob-behaviour.status.admitted.executed": "已执行"
+  "debug.portable-mob-behaviour.status.admitted.executed": "已执行",
+  "debug.portable-mob-behaviour.status.commit_failed": "提交失败",
+  "debug.portable-mob-behaviour.status.commit_failed_after_preempt": "抢占后提交失败",
+  "debug.portable-mob-behaviour.priority": "策略优先级",
+  "debug.portable-mob-behaviour.phases": "活动阶段",
+  "debug.portable-mob-behaviour.preemption": "最近抢占",
+  "debug.portable-mob-behaviour.source.default": "默认",
+  "debug.portable-mob-behaviour.source.override": "覆盖"
 }

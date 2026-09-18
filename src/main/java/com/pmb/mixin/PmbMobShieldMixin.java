@@ -129,23 +129,26 @@ public abstract class PmbMobShieldMixin extends LivingEntity implements PmbSkill
 				shieldAi.fetchSource(), List.of(InteractionHand.OFF_HAND),
 				stack -> stack.is(Items.SHIELD), shieldAi.preferredHand(), "shield");
 		if (item == null) return;
-		PmbSkillScheduler.of(mob).offer("shield", "raise", PmbSkillScheduler.Category.OFF, 10,
+		PmbSkillScheduler.of(mob).offerPlannedResult("shield", "raise", PmbSkillScheduler.Category.OFF, 10,
 				() -> {
 					shieldAi.resetCooldown(getRandom());
 					return PmbSkillTiming.passesChance(getRandom(), shieldAi.chance());
-				}, () -> {
-					if (!shieldAi.canUse() || mob.isNoAi() || shieldAi.isVulnerable()
-							|| mob.getTarget() != target || !target.isAlive()
-							|| !shouldPmbRaiseShield(shieldAi, target)) return;
+				}, () -> shieldAi.canUse() && !mob.isNoAi() && !shieldAi.isVulnerable()
+						&& mob.getTarget() == target && target.isAlive()
+						&& shouldPmbRaiseShield(shieldAi, target) && !PmbSkillScheduler.of(mob).hasBinding("shield")
+						&& PmbSkillItemAccess.stillMatches(mob, item),
+				() -> {
 					pmb$shieldLease = PmbSkillItemAccess.acquire(mob, item);
-					if (pmb$shieldLease == null) return;
-					if (!PmbSkillScheduler.of(mob).bind("shield", pmb$shieldLease)) { pmb$shieldLease = null; return;
+					if (pmb$shieldLease == null) return PmbSkillScheduler.CommitResult.FAILED;
+					if (!PmbSkillScheduler.of(mob).bind("shield", pmb$shieldLease)) { pmb$shieldLease = null;
+						return PmbSkillScheduler.CommitResult.FAILED;
 					}
 					pmb$shieldHand = pmb$shieldLease.hand();
 					shieldAi.setUseTicks(randomPmbShieldDuration(shieldAi));
 					startUsingItem(pmb$shieldHand);
 					updatePmbShieldSpeedModifier(shieldAi);
 					PmbSkillScheduler.of(mob).markCurrentCandidateExecuted("shield");
+					return PmbSkillScheduler.CommitResult.COMMITTED;
 				}, item.resources(PmbSkillScheduler.Resource.USE_ITEM));
 	}
 
@@ -155,9 +158,15 @@ public abstract class PmbMobShieldMixin extends LivingEntity implements PmbSkill
 	@Override
 	public void pmb$claimShieldResources(PmbSkillScheduler scheduler) {
 		if (((PmbAiHolder) this).pmb$getAiData().shield().useTicks() > 0)
-			scheduler.claim("shield", pmb$shieldHand == InteractionHand.MAIN_HAND
-					? PmbSkillScheduler.Resource.MAIN_HAND : PmbSkillScheduler.Resource.OFF_HAND,
-					PmbSkillScheduler.Resource.USE_ITEM);
+			scheduler.maintainPhase("shield", "guard", () -> {
+				PmbShieldAiData shield = ((PmbAiHolder) this).pmb$getAiData().shield();
+				Mob mob = (Mob) (Object) this;
+				return shield.canUse() && !mob.isNoAi() && pmb$shieldLease != null && pmb$shieldLease.matches(mob)
+						&& mob.getTarget() != null && mob.getTarget().isAlive();
+			}, this::pmb$cancelShieldSkill,
+					new PmbSkillScheduler.Resource[] {pmb$shieldHand == InteractionHand.MAIN_HAND
+							? PmbSkillScheduler.Resource.MAIN_HAND : PmbSkillScheduler.Resource.OFF_HAND,
+							PmbSkillScheduler.Resource.USE_ITEM});
 	}
 
 	@Override

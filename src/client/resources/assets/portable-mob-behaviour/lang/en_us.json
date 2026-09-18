@@ -18,5 +18,12 @@
   "debug.portable-mob-behaviour.status.resource_blocked": "RESOURCE BLOCKED",
   "debug.portable-mob-behaviour.status.admitted": "ADMITTED",
   "debug.portable-mob-behaviour.status.admitted.final_rejected": "FINAL REJECTED",
-  "debug.portable-mob-behaviour.status.admitted.executed": "EXECUTED"
+  "debug.portable-mob-behaviour.status.admitted.executed": "EXECUTED",
+  "debug.portable-mob-behaviour.status.commit_failed": "COMMIT FAILED",
+  "debug.portable-mob-behaviour.status.commit_failed_after_preempt": "COMMIT FAILED AFTER PREEMPT",
+  "debug.portable-mob-behaviour.priority": "PRIORITY",
+  "debug.portable-mob-behaviour.phases": "ACTIVE PHASES",
+  "debug.portable-mob-behaviour.preemption": "LAST PREEMPTION",
+  "debug.portable-mob-behaviour.source.default": "default",
+  "debug.portable-mob-behaviour.source.override": "override"
 }

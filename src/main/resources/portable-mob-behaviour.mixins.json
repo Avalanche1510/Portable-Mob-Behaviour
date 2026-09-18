@@ -17,6 +17,7 @@
 		"PmbMobMaceMixin",
 		"PmbMobBowMixin",
 		"PmbMeleeAttackGoalMixin",
+		"PmbBrainMeleeAttackMixin",
 		"PmbTargetGoalEyeSightMixin",
 		"PmbRangedBowAttackGoalMixin",
 		"PmbPlayerCriticalAttackMixin",

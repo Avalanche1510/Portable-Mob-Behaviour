@@ -11,6 +11,36 @@ Year.Month.Day-No.
 
 ## Record
 
+### 26.9.18-2
+
+Added independent `PmbAi.air_tracking`. Defaults are `enable:0b`, `activationSkills:["wind_charge","mace"]`, `trackAcceleration:0.012f`, `trackMaxHorizontalSpeed:0.3f`, `trackDurationTicks:-1`, and `requireEyeSight:1b`. Its ordered source list accepts every registered PMB skill except itself. A wind bounce creates a latch across ascent and descent; a usable falling mace with its authority target inside FOLLOW_RANGE provides a conditional source before smash range; another listed skill provides a generic source while it owns a sustained phase. Higher listed sources supersede lower sources immediately, which are re-evaluated on the next tick.
+
+The skill owns required `NAVIGATION` and optional `LOOK`. It preserves vertical velocity, accelerates horizontally toward the target (or away from the threat for evasive wind bounces), and caps that horizontal velocity. `trackDurationTicks` uses `-1` for terminal-bound tracking, `0` for no session, and positive values for exact control ticks; eyesight is required only at session start. Landing, water, invalid source/target, omission, and navigation preemption clear the session. Defaults now insert air_tracking after wind_charge in combat and retreat priority lists.
+
+Breaking migration: `wind_charge.inAirTrackStrength` and `wind_charge.inAirTrackDurationTicks` were removed. Configure the new `air_tracking` skill instead. K debug reports its source, inactive/infinite/remaining state, and latest clear reason.
+
+### 26.9.18-1
+
+Expanded `PmbInventory.Slots` from `[0,27]` to `[0,256]`. Its `SimpleContainer` now matches the actual clamped `Slots` value instead of allocating the maximum for every Mob, so the default zero-slot state has zero backing entries. Read, write, death-drop, pickup, conversion-copy, and permanent item/ammunition access continue to operate only on the configured capacity. Existing low-slot merge and immediate overflow-drop behavior is preserved when loaded data is reduced.
+
+`FetchSource` and `AmmoSource` now accept `inventory:256` and inclusive ranges through `inventory:1..256`; the `inventory` alias represents the full 1–256 declaration and runtime access is still truncated to the Mob's actual `Slots`. Slot numbers 0, 257, and reversed ranges remain invalid. Existing 0–27-slot data is directly compatible. Data stored in slots 28–256 is not backward-compatible and is lost if loaded by an older PMB version.
+
+### 26.9.17-2
+
+Added the boolean `PmbInventory.ScatterDrops`, default `0b`. After the existing `doMobLoot` gate and independent per-slot `DropChance` roll succeed, `0b` preserves the existing stationary PMB drop while `1b` routes that intact stack through the vanilla player-style death-drop path: it spawns near `eyeY - 0.3`, receives random radial horizontal speed in `[0.0,0.5)` plus vertical speed `0.2`, and uses the vanilla 40-tick pickup delay. The option never damages or splits a stack and does not affect resize/load overflow, held equipment, or any failed death-drop roll. The field is persisted and copied during Mob conversion; old or missing data resolves to `0b`.
+
+### 26.9.17-1
+
+Replaced category/rank-only conflict ordering with persisted per-strategy `skillPriorities` lists for combat, retreat, and idle. Strict tiers use quoted skill IDs and nested lists define equal tiers. Omitted skills cannot start in that strategy; `vanilla` is required exactly once as the ordinary combat-navigation and standard-melee boundary. Defaults are combat `mace > ender_pearl > wind_charge > bow > shield > vanilla`, retreat `ender_pearl > wind_charge > vanilla`, and idle `vanilla`. Equal-tier candidates with ready fixed triggers and cooldowns form a contested set; its cursor orders probability checks, later checks stop after the first commit, and only a successful contested commit advances to the skill after the actual winner. Running equal phases do not preempt one another.
+
+The scheduler now admits at most one new action or irreversible completion each tick. Chance and cooldown still occur before resource arbitration. Final checks and a complete preemption plan finish before incumbents are cancelled; strictly higher tiers may preempt conflicting required resources, while optional resources never block required ones and are reoffered each tick. Preempted actions retain their remaining cooldown without refund, reset, caching, or automatic resumption. Bow release and standard Goal/Brain melee now use the same commit slot; special attacks, ranged attacks, explosions, spells, and beams remain outside the vanilla bridge.
+
+Strategy or authority changes now revalidate each active phase instead of cancelling every skill indiscriminately; BLOCKED, death, NoAI, omission, and a phase's own invalid authority still cancel it. Standard vanilla melee is revalidated against current melee reach and sensing line of sight. Item, binding, and ammunition plans are checked before preemption; an impossible commit failure after preemption is reported as `COMMIT_FAILED_AFTER_PREEMPT` and ends arbitration for that tick.
+
+`NAVIGATION` is the sole movement-decision resource and includes HOLD. Bow charge requires it for holding, retreating, and strafing; wind bounce tracking requires NAVIGATION and optionally uses LOOK; mace does not use it. Shield preemption uses normal cancellation and resets toughness. Wind charge adds `inAirTrackDurationTicks` in `[-1,72000]`, default `-1`: unlimited until landing, water, invalid state, or preemption; `0` disables follow-up tracking; positive values count exact subsequent tracking ticks and are not refreshed by Wind Burst mace impacts.
+
+The breaking command grammar is now `/pmb skills skill <targets> ...` for the existing skill editor and `/pmb skills priority <targets> get|set|reset ...` for atomic complete priority-list overrides. The old selector-immediately-after-skills form is not accepted. Priority completion tracks quoted strings and bracket depth, so nested groups cannot be suggested inside an equal tier. K debug reports now include the effective priority source/list, active required/optional phases, the latest preemption, wind tracking as inactive/infinite/remaining, and its latest clear reason. Documentation and English/Simplified-Chinese chat labels were updated.
+
 ### 26.9.11-1
 
 Added a one-shot PMB skill debug probe bound to `K` by default and rebindable in Controls. A gamemaster may aim at a configured PmbAi Mob and press the key to request the same report in both their own chat and the server console/log. The chat copy is one multiline vanilla system message and is not broadcast to other players. The server validates permission level 2, same-level entity identity, interaction range, line of sight, Mob type and configured skill data, rate-limits each player to one accepted request per 250 milliseconds, and removes limiter state on disconnect. The optional play-stage request uses a varint entity ID and does not change `PMB_NETWORK_PROTOCOL`; clients check channel support before sending, and no custom S2C debug payload or complete AI data is sent to the client.
@@ -59,7 +89,7 @@ When `doConsume:1b` exhausts the last supported arrow, an inactive bow no longer
 
 ### 26.9.8-1
 
-Added the permission-level-2 `/pmb skills <targets> <skill> <mode>` testing command for shield, wind_charge, mace, bow, and ender_pearl. Its schema-aware bracket argument completes unused parameter names and typed values, validates canonical case-sensitive fields, strict NBT-style booleans, integer and float syntax, quoted enums and activation-source lists, field ranges, and final cross-field relationships.
+Added the permission-level-2 skill testing command for shield, wind_charge, mace, bow, and ender_pearl (current syntax: `/pmb skills skill <targets> <skill> <mode>`). Its schema-aware bracket argument completes unused parameter names and typed values, validates canonical case-sensitive fields, strict NBT-style booleans, integer and float syntax, quoted enums and activation-source lists, field ranges, and final cross-field relationships.
 
 Added atomic `append`, `insert`, `modify`, and `delete` operations plus single-target `get`. Append creates only a missing node, insert adds only absent explicit fields, modify changes only existing explicit fields, keyed delete restores defaults, `delete *` retains an empty disabled node, and `delete []` removes the node. Every selected entity must be a Mob and the complete batch is validated before any mutation.
 

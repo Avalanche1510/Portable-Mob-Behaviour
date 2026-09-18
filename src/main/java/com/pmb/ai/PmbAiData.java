@@ -19,6 +19,10 @@ public class PmbAiData {
 	private final PmbMaceAiData mace = new PmbMaceAiData();
 	private final PmbBowAiData bow = new PmbBowAiData();
 	private final PmbEnderPearlAiData enderPearl = new PmbEnderPearlAiData();
+	private final PmbAirTrackingAiData airTracking = new PmbAirTrackingAiData();
+	private final PmbSkillPriorities skillPriorities = new PmbSkillPriorities();
+
+	public PmbSkillPriorities skillPriorities() { return skillPriorities; }
 
 	public PmbShieldAiData shield() {
 		return shield;
@@ -39,11 +43,13 @@ public class PmbAiData {
 	public PmbEnderPearlAiData enderPearl() {
 		return enderPearl;
 	}
+	public PmbAirTrackingAiData airTracking() { return airTracking; }
 
 	public boolean isConfigured() {
 		return shield.isConfigured() || windCharge.isConfigured() || mace.isConfigured() || bow.isConfigured()
-				|| enderPearl.isConfigured();
+				|| enderPearl.isConfigured() || airTracking.isConfigured();
 	}
+	public boolean hasPersistentData() { return isConfigured() || skillPriorities.hasOverrides(); }
 
 	public PmbSkillConfigData skill(String id) {
 		return switch (id) {
@@ -52,6 +58,7 @@ public class PmbAiData {
 			case PmbMaceAiData.TAG -> mace;
 			case PmbBowAiData.TAG -> bow;
 			case PmbEnderPearlAiData.TAG -> enderPearl;
+			case PmbAirTrackingAiData.TAG -> airTracking;
 			default -> throw new IllegalArgumentException("Unknown PMB skill: " + id);
 		};
 	}
@@ -83,6 +90,7 @@ public class PmbAiData {
 				case PmbMaceAiData.TAG -> mace.read(ai);
 				case PmbBowAiData.TAG -> bow.read(ai);
 				case PmbEnderPearlAiData.TAG -> enderPearl.read(ai);
+				case PmbAirTrackingAiData.TAG -> airTracking.read(ai);
 				default -> throw new IllegalArgumentException("Unknown PMB skill: " + id);
 			}
 		}
@@ -100,14 +108,17 @@ public class PmbAiData {
 		mace.read(aiInput.get());
 		bow.read(aiInput.get());
 		enderPearl.read(aiInput.get());
+		airTracking.read(aiInput.get());
+		skillPriorities.read(aiInput.get());
 	}
 
 	public void write(ValueOutput output) {
-		if (!isConfigured()) {
+		if (!hasPersistentData()) {
 			return;
 		}
 
 		ValueOutput ai = output.child(TAG);
+		skillPriorities.write(ai);
 		if (shield.isConfigured()) {
 			shield.write(ai.child(PmbShieldAiData.TAG));
 		}
@@ -123,6 +134,7 @@ public class PmbAiData {
 		if (enderPearl.isConfigured()) {
 			enderPearl.write(ai.child(PmbEnderPearlAiData.TAG));
 		}
+		if (airTracking.isConfigured()) airTracking.write(ai.child(PmbAirTrackingAiData.TAG));
 	}
 
 	public void writeRuntime(ValueOutput output, long gameTime) {
@@ -168,5 +180,7 @@ public class PmbAiData {
 		mace.clear();
 		bow.clear();
 		enderPearl.clear();
+		airTracking.clear();
+		skillPriorities.resetAll();
 	}
 }

@@ -15,7 +15,7 @@ import net.minecraft.nbt.Tag;
 
 /** Canonical command-facing schema for the five persisted PMB skills. */
 public final class PmbSkillSchema {
-	public enum Kind { BOOLEAN, INTEGER, FLOAT, STRING, ACTIVATION_SOURCES, AMMO_SOURCES }
+	public enum Kind { BOOLEAN, INTEGER, FLOAT, STRING, ACTIVATION_SOURCES, AMMO_SOURCES, SKILL_IDS }
 	public record Field(String name, Kind kind, Tag defaultValue, double min, double max, List<String> choices) {
 		public String defaultText() { return defaultValue.toString(); }
 		public String description() {
@@ -26,6 +26,7 @@ public final class PmbSkillSchema {
 				case STRING -> "quoted value " + choices + "; default " + defaultText();
 				case ACTIVATION_SOURCES -> "quoted source list; default omitted";
 				case AMMO_SOURCES -> "quoted ammunition-source list; default omitted";
+				case SKILL_IDS -> "quoted PMB skill-id list";
 			};
 		}
 		private String rangeText() { return "[" + formatBound(min) + ", " + formatBound(max) + "]"; }
@@ -48,8 +49,11 @@ public final class PmbSkillSchema {
 				activation("mainhand", "offhand"), preferred("off"), bool("enable", false), flt("throwRange", 16.0F, 0, 64), flt("throwChance", 0.35F, 0, 1),
 				integer("throwCooldownTicks", 40, 0, 72000), flt("throwAccuracy", 0.9F, 0, 1),
 				flt("bounceRange", 4.0F, 0, 64), flt("bounceChance", 0.35F, 0, 1),
-				integer("bounceCooldownTicks", 40, 0, 72000), randomCooldownBias(), bool("doConsume", false),
-				flt("inAirTrackStrength", 0.012F, 0, 1))));
+				integer("bounceCooldownTicks", 40, 0, 72000), randomCooldownBias(), bool("doConsume", false))));
+		register(new PmbSkillSchema("air_tracking", List.of(
+				bool("enable", false), skillIds("wind_charge", "mace"), flt("trackAcceleration", 0.012F, 0, 1),
+				flt("trackMaxHorizontalSpeed", 0.3F, 0, 3), integer("trackDurationTicks", -1, -1, 72000),
+				bool("requireEyeSight", true))));
 		register(new PmbSkillSchema("mace", List.of(
 				activation("mainhand"), bool("enable", false), flt("smashRange", 3.0F, 0, 64), flt("hitChance", 0.5F, 0, 1),
 				flt("damageReduction", 0.5F, 0, 1), integer("smashCooldownTicks", 100, 0, 72000), randomCooldownBias())));
@@ -122,6 +126,7 @@ public final class PmbSkillSchema {
 					if (!field.choices().contains(value)) throw invalid(field.name() + " must be one of " + field.choices());
 				}
 				case ACTIVATION_SOURCES, AMMO_SOURCES -> validateSources(tag, field.name());
+				case SKILL_IDS -> validateSkillIds(tag, field.name());
 			}
 		}
 		if (id.equals("shield") && integer(values, "minUseTicks", 80) > integer(values, "maxUseTicks", 160))
@@ -146,6 +151,16 @@ public final class PmbSkillSchema {
 			int last = split < 0 ? first : Integer.parseInt(range.substring(split + 2));
 			return first >= 1 && last <= PmbInventory.MAX_SLOTS && first <= last;
 		} catch (NumberFormatException ignored) { return false; }
+	}
+	public static boolean isRegisteredSkill(String value) { return SCHEMAS.containsKey(value); }
+	private static void validateSkillIds(Tag tag, String name) throws CommandSyntaxException {
+		ListTag list = tag.asList().orElseThrow(() -> invalid(name + " must be a string list"));
+		java.util.HashSet<String> seen = new java.util.HashSet<>();
+		for (Tag entry : list) {
+			String value = entry.asString().orElseThrow(() -> invalid(name + " must contain quoted strings"));
+			if (!isRegisteredSkill(value) || value.equals("air_tracking") || !seen.add(value))
+				throw invalid("Invalid " + name + " entry: " + value);
+		}
 	}
 
 	private static void validateSources(Tag tag, String name) throws CommandSyntaxException {
@@ -172,6 +187,10 @@ public final class PmbSkillSchema {
 	}
 	private static Field ammo() {
 		return new Field("AmmoSource", Kind.AMMO_SOURCES, new ListTag(), 0, 0, List.of());
+	}
+	private static Field skillIds(String... values) {
+		ListTag list = new ListTag(); for (String value : values) list.add(StringTag.valueOf(value));
+		return new Field("activationSkills", Kind.SKILL_IDS, list, 0, 0, List.of());
 	}
 	private static Field bool(String name, boolean value) { return new Field(name, Kind.BOOLEAN, net.minecraft.nbt.ByteTag.valueOf(value), 0, 1, List.of()); }
 	private static Field integer(String name, int value, double min, double max) { return new Field(name, Kind.INTEGER, net.minecraft.nbt.IntTag.valueOf(value), min, max, List.of()); }

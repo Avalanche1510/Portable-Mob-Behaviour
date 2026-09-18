@@ -15,7 +15,9 @@ public record PmbSkillDebugSnapshot(int entityId, UUID entityUuid, String entity
 		List<CandidateAttempt> attempts, Map<PmbSkillScheduler.Resource, String> sustainedClaims,
 		Map<PmbSkillScheduler.Resource, String> allClaims, Map<String, String> bindings,
 		PmbMovementController.DebugSnapshot movement, boolean ordinaryMeleeSuppressed,
-		List<String> meleeSuppressionReasons, boolean usingItem, String usedItemHand) {
+		List<String> meleeSuppressionReasons, boolean usingItem, String usedItemHand,
+		List<List<String>> priorityTiers, boolean priorityOverride, List<String> activePhases,
+		String lastPreemption) {
 	public PmbSkillDebugSnapshot {
 		skills = List.copyOf(skills);
 		attempts = List.copyOf(attempts);
@@ -23,8 +25,21 @@ public record PmbSkillDebugSnapshot(int entityId, UUID entityUuid, String entity
 		allClaims = Map.copyOf(allClaims);
 		bindings = Map.copyOf(bindings);
 		meleeSuppressionReasons = List.copyOf(meleeSuppressionReasons);
+		priorityTiers = priorityTiers.stream().map(List::copyOf).toList();
+		activePhases = List.copyOf(activePhases);
 	}
-	public enum AttemptStatus { PRECLAIM_REJECTED, RESOURCE_BLOCKED, ADMITTED, FINAL_REJECTED, EXECUTED }
+	public PmbSkillDebugSnapshot(int entityId, UUID entityUuid, String entityType, int tick,
+			PmbSkillScheduler.Strategy strategy, UUID authorityTarget, List<SkillState> skills,
+			List<CandidateAttempt> attempts, Map<PmbSkillScheduler.Resource, String> sustainedClaims,
+			Map<PmbSkillScheduler.Resource, String> allClaims, Map<String, String> bindings,
+			PmbMovementController.DebugSnapshot movement, boolean ordinaryMeleeSuppressed,
+			List<String> meleeSuppressionReasons, boolean usingItem, String usedItemHand) {
+		this(entityId, entityUuid, entityType, tick, strategy, authorityTarget, skills, attempts, sustainedClaims,
+				allClaims, bindings, movement, ordinaryMeleeSuppressed, meleeSuppressionReasons, usingItem, usedItemHand,
+				List.of(), false, List.of(), null);
+	}
+	public enum AttemptStatus { PRECLAIM_REJECTED, RESOURCE_BLOCKED, ADMITTED, FINAL_REJECTED,
+		COMMIT_FAILED, COMMIT_FAILED_AFTER_PREEMPT, EXECUTED }
 	public record SkillState(String id, boolean configured, boolean enabled, boolean activeThisTick,
 			String cooldown, String state) {}
 	public record CandidateAttempt(String owner, String label, PmbSkillScheduler.Category category, int rank,
@@ -52,6 +67,11 @@ public record PmbSkillDebugSnapshot(int entityId, UUID entityUuid, String entity
 					executed ? AttemptStatus.EXECUTED : AttemptStatus.FINAL_REJECTED,
 					resources, blockedResource, blocker);
 		}
+		CandidateAttempt commitFailed(boolean afterPreempt) {
+			return new CandidateAttempt(owner, label, category, rank,
+					afterPreempt ? AttemptStatus.COMMIT_FAILED_AFTER_PREEMPT : AttemptStatus.COMMIT_FAILED,
+					resources, blockedResource, blocker);
+		}
 	}
 
 	static PmbSkillDebugSnapshot capture(Mob mob, PmbSkillScheduler scheduler, PmbAiData ai,
@@ -61,6 +81,9 @@ public record PmbSkillDebugSnapshot(int entityId, UUID entityUuid, String entity
 			PmbMovementController.DebugSnapshot movement) {
 		List<String> executed = attempts.stream().filter(a -> a.status() == AttemptStatus.EXECUTED)
 				.map(CandidateAttempt::owner).toList();
+		PmbAirTrackingController air = scheduler.airTracking();
+		int airTicks = air.remaining();
+		String airState = airTicks < 0 ? "infinite" : airTicks == 0 ? "inactive" : "remaining=" + airTicks;
 		List<SkillState> skills = List.of(
 				new SkillState("shield", ai.shield().isConfigured(), ai.shield().isEnabled(),
 						active("shield", sustained, executed),
@@ -68,7 +91,11 @@ public record PmbSkillDebugSnapshot(int entityId, UUID entityUuid, String entity
 						"useTicks=" + ai.shield().useTicks() + ",vulnerableTicks=" + ai.shield().vulnerableTicks()),
 				new SkillState("wind_charge", ai.windCharge().isConfigured(), ai.windCharge().isEnabled(),
 						active("wind", sustained, executed),
-						"throw=" + ai.windCharge().throwCooldownRemaining() + ",bounce=" + ai.windCharge().bounceCooldownRemaining(), "-"),
+						"throw=" + ai.windCharge().throwCooldownRemaining() + ",bounce=" + ai.windCharge().bounceCooldownRemaining(),
+						"-"),
+				new SkillState("air_tracking", ai.airTracking().isConfigured(), ai.airTracking().isEnabled(),
+						active("air_tracking", sustained, executed), "-",
+						"source=" + air.source() + ",tracking=" + airState + ",lastClearReason=" + air.clearReason()),
 				new SkillState("mace", ai.mace().isConfigured(), ai.mace().isEnabled(),
 						active("mace", sustained, executed), "smash=" + ai.mace().cooldownRemaining(), "-"),
 				new SkillState("bow", ai.bow().isConfigured(), ai.bow().isEnabled(),
@@ -83,12 +110,17 @@ public record PmbSkillDebugSnapshot(int entityId, UUID entityUuid, String entity
 		if (ai.shield().isVulnerable()) suppression.add("shield_vulnerability");
 		if (PmbSkillItemAccess.shouldSuppressMeleeForBow(mob)) suppression.add("bow");
 		if (PmbSkillItemAccess.shouldSuppressUnscheduledFallingMace(mob)) suppression.add("falling_mace");
+		List<String> phases = scheduler.activePhases().values().stream()
+				.map(phase -> phase.owner() + '/' + phase.label() + " required=" + phase.required()
+						+ " optional=" + phase.optional()).sorted().toList();
 		return new PmbSkillDebugSnapshot(mob.getId(), mob.getUUID(),
 				BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString(), mob.tickCount,
 				scheduler.strategy(), scheduler.authorityTarget(), skills, List.copyOf(attempts),
 				Map.copyOf(new EnumMap<>(sustained)), Map.copyOf(new EnumMap<>(allClaims)),
 				Map.copyOf(bindingCopies), movement, !suppression.isEmpty(), List.copyOf(suppression),
-				mob.isUsingItem(), mob.isUsingItem() ? mob.getUsedItemHand().toString() : "-");
+				mob.isUsingItem(), mob.isUsingItem() ? mob.getUsedItemHand().toString() : "-",
+				scheduler.priorities().effective(scheduler.strategy()),
+				scheduler.priorities().hasOverride(scheduler.strategy()), phases, scheduler.lastPreemption());
 	}
 
 	private static boolean active(String owner, Map<PmbSkillScheduler.Resource, String> sustained,

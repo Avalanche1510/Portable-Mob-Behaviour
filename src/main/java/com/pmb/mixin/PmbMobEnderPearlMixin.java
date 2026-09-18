@@ -86,18 +86,20 @@ public abstract class PmbMobEnderPearlMixin extends LivingEntity implements PmbS
 				List.of(InteractionHand.MAIN_HAND, InteractionHand.OFF_HAND), stack -> stack.is(Items.ENDER_PEARL),
 				pearlAi.preferredHand(), "pearl");
 		if (item == null) return;
-		PmbSkillScheduler.of(mob).offerDynamic("pearl", "throw", PmbSkillScheduler.Category.THROW, 20,
+		Vec3[] plannedVelocity = {null};
+		PmbSkillScheduler.of(mob).offerDynamicPlannedResult("pearl", "throw", PmbSkillScheduler.Category.THROW, 20,
 				() -> {
 					pearlAi.resetThrowCooldown(getRandom());
 					return PmbSkillTiming.passesChance(getRandom(), pearlAi.throwChance());
-				}, () -> {
-					Vec3 velocity = pmb$planEnderPearlLaunch(mob, target, pearlAi, evasive);
-					if (velocity == null) return;
+				}, () -> !PmbSkillScheduler.of(mob).hasBinding("pearl") && PmbSkillItemAccess.stillMatches(mob, item)
+						&& (plannedVelocity[0] = pmb$planEnderPearlLaunch(mob, target, pearlAi, evasive)) != null,
+				() -> {
 					PmbSkillItemAccess.ActionBinding lease = PmbSkillItemAccess.acquire(mob, item);
-					if (lease == null) return;
-					pmb$throwEnderPearl(serverLevel, mob, lease.hand(), pearlAi, velocity);
+					if (lease == null) return PmbSkillScheduler.CommitResult.FAILED;
+					pmb$throwEnderPearl(serverLevel, mob, lease.hand(), pearlAi, plannedVelocity[0]);
 					lease.authorizeAction(mob);
 					PmbSkillScheduler.of(mob).markCurrentCandidateExecuted("pearl");
+					return PmbSkillScheduler.CommitResult.COMMITTED;
 				}, () -> item.resources(PmbSkillScheduler.Resource.LOOK));
 	}
 
@@ -106,7 +108,12 @@ public abstract class PmbMobEnderPearlMixin extends LivingEntity implements PmbS
 
 	@Override
 	public void pmb$claimPearlResources(PmbSkillScheduler scheduler) {
-		if (pmb$pearlLookTicks > 0) scheduler.claim("pearl", PmbSkillScheduler.Resource.LOOK);
+		if (pmb$pearlLookTicks > 0) scheduler.maintainPhase("pearl", "follow_through",
+				() -> isAlive() && !((Mob) (Object) this).isNoAi()
+						&& ((PmbAiHolder) this).pmb$getAiData().enderPearl().isEnabled()
+						&& !((PmbAiHolder) this).pmb$getAiData().shield().isVulnerable(),
+				this::pmb$clearPearlLook,
+				new PmbSkillScheduler.Resource[0], PmbSkillScheduler.Resource.LOOK);
 	}
 
 	@Unique
@@ -242,8 +249,9 @@ public abstract class PmbMobEnderPearlMixin extends LivingEntity implements PmbS
 			return;
 		}
 		pmb$pearlLookTicks--;
-		mob.getLookControl().setLookAt(pmb$pearlLookPoint.x(), pmb$pearlLookPoint.y(),
-				pmb$pearlLookPoint.z(), 180.0F, 180.0F);
+		if (PmbSkillScheduler.of(mob).ownsResource("pearl", PmbSkillScheduler.Resource.LOOK))
+			mob.getLookControl().setLookAt(pmb$pearlLookPoint.x(), pmb$pearlLookPoint.y(),
+					pmb$pearlLookPoint.z(), 180.0F, 180.0F);
 	}
 
 	@Unique

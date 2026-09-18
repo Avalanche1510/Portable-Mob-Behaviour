@@ -62,6 +62,16 @@ public final class PmbSkillItemAccess {
 		}
 		return new ActionBinding(resolved);
 	}
+	public static boolean stillMatches(Mob mob, Resolved resolved) {
+		if (resolved == null) return false;
+		ItemStack source = switch (resolved.transfer()) {
+			case DIRECT, HAND_SWAP -> mob.getItemInHand(resolved.sourceHand());
+			case INVENTORY_SWAP -> ((PmbInventoryHolder) mob).pmb$getInventory().get(resolved.inventorySlot());
+		};
+		if (!ItemStack.matches(source, resolved.sourceSnapshot())) return false;
+		return resolved.transfer() == Transfer.DIRECT
+				|| ItemStack.matches(mob.getItemInHand(resolved.hand()), resolved.displacedSnapshot());
+	}
 	public static Resolved resolvePreferred(Mob mob, PmbActivationSources configured, List<InteractionHand> defaults,
 			Predicate<ItemStack> predicate, PmbPreferredHand preference, String owner) {
 		PmbSkillScheduler scheduler = PmbSkillScheduler.of(mob);

@@ -21,6 +21,10 @@ public final class PmbSkillDebugFormatter {
 				.append(" uuid=").append(snapshot.entityUuid())
 				.append("\nMELEE: ").append(snapshot.ordinaryMeleeSuppressed() ? "SUPPRESSED" : "AVAILABLE")
 				.append(" reasons=").append(snapshot.meleeSuppressionReasons());
+		out.append("\nPRIORITY: strategy=").append(snapshot.strategy()).append(" source=")
+				.append(snapshot.priorityOverride() ? "override" : "default").append(" tiers=").append(snapshot.priorityTiers())
+				.append("\nACTIVE PHASES: ").append(snapshot.activePhases())
+				.append("\nLAST PREEMPTION: ").append(snapshot.lastPreemption() == null ? "none" : snapshot.lastPreemption());
 		appendSkills(out, snapshot.skills());
 		appendAttempts(out, snapshot.attempts());
 		appendResources(out, snapshot.sustainedClaims(), snapshot.allClaims());
@@ -45,6 +49,13 @@ public final class PmbSkillDebugFormatter {
 				.withStyle(snapshot.ordinaryMeleeSuppressed() ? ChatFormatting.RED : ChatFormatting.GREEN);
 		line(out, heading("melee").append(Component.literal(": ")).append(melee)
 				.append(Component.literal(" reasons=" + snapshot.meleeSuppressionReasons()).withStyle(ChatFormatting.GRAY)));
+		line(out, heading("priority").append(Component.literal(": strategy=" + snapshot.strategy() + " source=")
+				.withStyle(ChatFormatting.GRAY)).append(tr(snapshot.priorityOverride() ? "source.override" : "source.default")
+				.withStyle(ChatFormatting.YELLOW)).append(Component.literal(" tiers=" + snapshot.priorityTiers())
+				.withStyle(ChatFormatting.WHITE)));
+		line(out, heading("phases").append(Component.literal(": " + snapshot.activePhases()).withStyle(ChatFormatting.WHITE)));
+		line(out, heading("preemption").append(Component.literal(": "
+				+ (snapshot.lastPreemption() == null ? "-" : snapshot.lastPreemption())).withStyle(ChatFormatting.RED)));
 
 		List<PmbSkillDebugSnapshot.SkillState> enabled = enabledSkills(snapshot.skills());
 		if (enabled.isEmpty()) {
@@ -164,7 +175,7 @@ public final class PmbSkillDebugFormatter {
 		ChatFormatting color = switch (attempt.status()) {
 			case EXECUTED -> ChatFormatting.GREEN;
 			case ADMITTED -> ChatFormatting.YELLOW;
-			case RESOURCE_BLOCKED, FINAL_REJECTED -> ChatFormatting.RED;
+			case RESOURCE_BLOCKED, FINAL_REJECTED, COMMIT_FAILED, COMMIT_FAILED_AFTER_PREEMPT -> ChatFormatting.RED;
 			case PRECLAIM_REJECTED -> ChatFormatting.GRAY;
 		};
 		MutableComponent line = Component.literal("  " + attempt.owner() + '/' + attempt.label() + " [")
