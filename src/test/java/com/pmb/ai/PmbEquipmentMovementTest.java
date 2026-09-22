@@ -692,10 +692,30 @@ public final class PmbEquipmentMovementTest {
 				&& !PmbAirTrackingController.sameSession("mace", firstTarget, false,
 						"mace", firstTarget, true),
 				"air tracking session identity includes source target and evasive mode");
-		check(!PmbAirTrackingController.withinMaceAirRange(9.0D, 16.0D, 3.0D)
-				&& PmbAirTrackingController.withinMaceAirRange(9.01D, 16.0D, 3.0D)
-				&& !PmbAirTrackingController.withinMaceAirRange(256.01D, 16.0D, 3.0D),
-				"mace air source is strictly outside smash range and inside follow range");
+		check(PmbAirTrackingController.withinMaceAirRange(0.0D, 16.0D)
+				&& PmbAirTrackingController.withinMaceAirRange(9.0D, 16.0D)
+				&& PmbAirTrackingController.withinMaceAirRange(256.0D, 16.0D)
+				&& !PmbAirTrackingController.withinMaceAirRange(256.01D, 16.0D),
+				"mace air source covers the full inclusive follow range, including smash range");
+		PmbAirTrackingController tracking = new PmbAirTrackingController();
+		field(PmbAirTrackingController.class, "windLatched").setBoolean(tracking, true);
+		check(tracking.trackingState().equals("wind_latched_waiting_next_tick"),
+				"air tracking exposes a newly latched wind bounce before its first airborne control tick");
+		field(PmbAirTrackingController.class, "source").set(tracking, "wind_charge");
+		field(PmbAirTrackingController.class, "remaining").setInt(tracking, -1);
+		check(tracking.trackingState().equals("infinite"),
+				"negative-one air tracking duration remains a live infinite session rather than invalidating it");
+		field(PmbAirTrackingController.class, "lookDenied").setBoolean(tracking, true);
+		check(tracking.trackingState().equals("infinite,look_optional_denied"),
+				"optional LOOK denial remains diagnostic state without ending an active tracking session");
+		check(PmbAirTrackingController.groundLifecycleState(true, false, false, true)
+					.equals("wind_latched_waiting_next_tick")
+				&& PmbAirTrackingController.groundLifecycleState(true, false, false, false).equals("target_invalid")
+				&& PmbAirTrackingController.groundLifecycleState(true, true, true, true).equals("landed"),
+				"wind latch lifecycle waits on the bounce ground tick, rejects an invalid target, then clears on landing");
+		tracking.clear("landed");
+		check(tracking.trackingState().equals("inactive") && tracking.clearReason().equals("landed"),
+				"landing clears the completed air tracking session after its active infinite state");
 	}
 	private static void testSkillPriorities() {
 		PmbSkillPriorities priorities = new PmbSkillPriorities();

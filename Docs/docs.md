@@ -28,7 +28,7 @@ Operators with gamemaster permission level 2 may edit one skill on one or more m
 /pmb skills skill <targets> <skill> delete []
 ```
 
-`<skill>` completes to `shield`, `wind_charge`, `mace`, `bow`, or `ender_pearl`. `append` creates a missing node, including an empty node with `append []`. `insert` adds only fields not already written explicitly. `modify` changes only explicitly written fields. `delete [a,b]` removes those explicit fields and restores their defaults. `delete *` retains an empty, disabled skill node with every value at its default. `delete []` removes the skill node itself. `get` accepts exactly one Mob and reports whether the node exists, its explicit fields, and every effective value with its explicit/default source.
+`<skill>` completes to `shield`, `wind_charge`, `ender_pearl`, `mace`, `bow`, or `air_tracking`. `append` creates a missing node, including an empty node with `append []`. `insert` adds only fields not already written explicitly. `modify` changes only explicitly written fields. `delete [a,b]` removes those explicit fields and restores their defaults. `delete *` retains an empty, disabled skill node with every value at its default. `delete []` removes the skill node itself. `get` accepts exactly one Mob and reports whether the node exists, its explicit fields, and every effective value with its explicit/default source.
 
 The target selector must resolve only to Mob entities. Bulk writes first validate every target, every operation precondition, and every resulting complete configuration; one failure leaves every selected mob unchanged. A successful write immediately cancels only the selected skill, retains its committed equipment layout, clears that skill's cooldown and action state, and refreshes shield toughness when editing shield. Other skills and their cooldowns continue unchanged.
 
@@ -58,19 +58,23 @@ PmbAi:{skillPriorities:{combat:["mace","ender_pearl","wind_charge","air_tracking
 /pmb skills priority @e[type=minecraft:zombie] reset all
 ```
 
+<details>
+<summary>arbitration and movement details</summary>
+
 At most one new action or irreversible completion commits each tick. Chance and cooldown occur before resource arbitration. Final validation and the complete preemption plan occur before an incumbent is cancelled. Only a strictly higher tier can preempt a conflicting required resource; equal tiers do not preempt running phases. Optional resources never block required resources and are offered again each tick. A preempted skill retains its remaining cooldown and is neither cached nor automatically resumed.
 
 Changing strategy or authority revalidates each active phase; a phase that remains listed and valid continues without blanket cancellation. BLOCKED, death, NoAI, omission, or phase-local invalidation still cancels it. Standard vanilla melee is finally rechecked for current melee reach and sensing line of sight. Read-only item, binding, and ammunition plans complete before preemption; an impossible failure while committing afterward stops the tick and is exposed as `COMMIT_FAILED_AFTER_PREEMPT` when an incumbent was already cancelled.
 
 `NAVIGATION` is the sole movement-decision resource and includes an explicit hold-still decision. Bow charge owns it while holding, retreating, or strafing. Independent `air_tracking` owns `NAVIGATION` and optionally uses `LOOK`; mace itself does not own it, preserving wind-burst mace combinations. `vanilla` covers normal Goal/Brain combat movement and standard melee, but not special attacks, ranged attacks, spells, explosions, or beams.
 
-## Independent air tracking
+</details>
 
-`air_tracking` is a separately configured skill, not a wind-charge field. It selects the first valid source from its ordered `activationSkills` list. A wind bounce is a latched source: after a successful bounce it remains eligible across ascent and descent even though wind's instant action has ended. Mace is conditional: a usable enabled mace, falling Mob, current authority target, and target inside FOLLOW_RANGE provide a source before `smashRange`. Any other listed registered skill is generic and is eligible while its sustained scheduler phase is active. Higher listed valid sources immediately supersede lower sources; when the higher source becomes invalid, the lower source is considered again on the next tick.
-
-`trackDurationTicks:-1` continues to landing, water, invalid source/target, strategy omission, or navigation preemption. `0` permits the source action but creates no tracking session; a positive value supplies exactly that many actual control ticks. `requireEyeSight:1b` requires sight only when a source session begins; later temporary loss does not cancel it. Tracking preserves Y velocity, applies `trackAcceleration` horizontally toward the target (away from an evasive wind threat), and caps horizontal velocity at `trackMaxHorizontalSpeed`. It requires `NAVIGATION` and only turns when optional `LOOK` is available. Landing sound and fall-immunity from wind bounce remain independent.
+<details>
+<summary>sparse skill data and compatibility</summary>
 
 Skill compounds are now saved sparsely: an existing child node and the ordered canonical fields actually present in it define node existence and explicit fields. Empty nodes, partial configurations, direct `/summon` data, and later `/data merge` or `/data remove` edits therefore retain their meaning across save and reload. Older full compounds are interpreted as having every present canonical field explicitly written; supported legacy aliases map to their canonical field when read.
+
+</details>
 
 ## Skill debug probe
 
@@ -255,6 +259,12 @@ Member assignment requires an existing faction and a selection containing only L
 {
     PmbAi:
         {
+            skillPriorities:
+                {
+                    combat: [<skill or equal-tier list>, ...],
+                    retreat: [<skill or equal-tier list>, ...],
+                    idle: [<skill or equal-tier list>, ...]
+                },
             shield:
                 {
                     enable: <bool>,
@@ -330,6 +340,7 @@ Member assignment requires an existing faction and a selection containing only L
                     enable: <bool>,
                     FetchSource: [<string>, ...],
                     preferredHand: <string>,
+                    AmmoSource: [<string>, ...],
                     doConsume: <bool>,
                     requireEyeSight: <bool>,
                     modePriority: <string>,
@@ -370,11 +381,11 @@ Member assignment requires an existing faction and a selection containing only L
 
 ## Skill scheduling and PmbInventory
 
-All PMB skills now run through one server-side Mob tick. The scheduler selects one strategy state: Faction avoidance produces `retreat`, otherwise a valid attack target produces `combat`, and no authoritative target produces `idle`. Shield-break vulnerability, NoAI, and death block new skill actions. A strategy or authoritative-target change cancels sustained PMB actions instead of silently retargeting them.
+All PMB skills run through one server-side Mob tick. The authoritative strategy is `retreat` for Faction avoidance, otherwise `combat` with a valid attack target, or `idle` without one. Shield-break vulnerability, NoAI, and death block new actions. Strategy or authority changes revalidate every sustained phase: valid phases still listed by the new strategy continue, while omitted or phase-invalid ones end.
 
-The default conflict category order is `main > off > throw > food > block` in combat, `throw > off > food > main > block` while retreating, and `block > food > off > main > throw` while idle. Category order only resolves genuine resource conflicts; unrelated resources can act during the same tick. Mace ranks above bow inside `main`, and ender pearl ranks above wind charge inside `throw`. Each physical hand performs at most one PMB action per game tick. Sorted candidates first start their cooldown and roll chance; only successful rolls claim resources. A resource loser has therefore already rolled and retains its cooldown, but never moves an item or enters a retry queue.
+Priority, equal-tier rotation, preemption, and the one-commit-per-tick rule use the persisted per-strategy `skillPriorities` model described above. Skills roll chance and start their check cooldown before resource arbitration; a failed final resource or validation check keeps that cooldown without moving an item, caching an action, or retrying before the next normal check.
 
-Wind-charge bounce keeps its existing bounce-first and failed-bounce fall-through behavior. Continued flight owns LOOK, while airborne horizontal tracking submits an independent velocity modifier. Flight does not reserve a hand, USE_ITEM, or SMASH. NAVIGATION is no longer an exclusive skill resource.
+Wind-charge bounce remains the first same-skill mode check and may fall through to throw only after its chance fails. Post-bounce airborne movement belongs to independent `air_tracking`: it requires `NAVIGATION`, may use `LOOK`, and does not reserve a hand, USE_ITEM, or SMASH.
 
 Each skill accepts the optional ordered FetchSource string list: mainhand, offhand, inventory, inventory:1, or inclusive ranges such as inventory:1..9. Public slots are 1–256 and ranges may overlap. The destination hand is selected first. A compatible item already there is used directly without consulting FetchSource; otherwise sources are scanned in list order and slots in ascending order. Omission uses the previous source-hand order. An empty or invalid list offers no fetch locations but does not disable a compatible item already in the destination hand.
 
@@ -384,7 +395,7 @@ Busy source and destination hands cannot be exchanged; unavailable sources are s
 
 Every successful equipment exchange is permanent. Completion, cancellation, NoAI, unloading, conversion and death never restore the previous layout. ActionBinding validates the current action item and binds its hand until completion. Displaced weapons or arrows may become stranded outside FetchSource/AmmoSource; configuration authors must cover the required locations. Final held items follow vanilla equipment drop rules, while final inventory items follow PMB inventory drop rules.
 
-Movement is resolved separately: shield-vulnerability HARD_STOP, retreat locomotion, active-skill locomotion, other passive movement, then vanilla Goal/Brain movement. Ties use strategy category, conflictRank and stable skill ID. One LOCOMOTION wins per tick; VELOCITY_MODIFIER may add horizontal steering while preserving vertical velocity. Losing movement never cancels a skill or advances cooldown. Intents are revalidated before the next AI movement-control phase. Drawing a bow owns its actual hand, USE_ITEM and LOOK, and bow locomotion exists only during that active draw. Vulnerability stops AI motion while preserving gravity and knockback.
+`NAVIGATION` is the exclusive PMB movement-decision resource, including a deliberate hold-still decision. Bow charging and independent air tracking claim it only for their valid active phases; ordinary Goal/Brain movement remains represented by `vanilla`. Shield-break vulnerability suppresses AI movement while preserving gravity and knockback. Movement ownership and phase validity are rechecked each tick; a movement-resource loss does not refund or advance a skill cooldown.
 
 
 
@@ -429,7 +440,7 @@ PmbAi is a compound tag. It can contain multiple manually added AI skills, each 
 
 PmbAi runs only while the mob is alive. As soon as health reaches zero and the death animation begins, new AI checks and melee execution stop, and any unreleased bow charge, shield use, wind-charge bounce tracking, or mace execution state is cancelled. A dying mob cannot continue attacking, throwing, or shooting during the animation. This gate affects only AI and skill state: it does not clear death-knockback velocity, disable gravity, or replace the vanilla death process.
 
-All five skills expose `randomCooldownBias`, an integer in `[0, 1200]` with default `20`. Whenever an active skill check starts a cooldown, its actual duration is the configured base cooldown plus one independently drawn, uniformly distributed integer in the inclusive interval `[0, randomCooldownBias]`; `0` restores a fixed cooldown. Bow line/arc and wind-charge throw/bounce share one field within their skill but draw separately. This field does not affect shield-disable or vulnerability timers, use/charge duration, airborne tracking, or temporary look duration. Missing legacy data defaults to `20`.
+The five action skills (`shield`, `wind_charge`, `ender_pearl`, `mace`, and `bow`) expose `randomCooldownBias`, an integer in `[0, 1200]` with default `20`. Whenever a check starts a cooldown, its actual duration is the configured base cooldown plus one independently drawn, uniformly distributed integer in `[0, randomCooldownBias]`; `0` restores a fixed cooldown. `air_tracking` has no check cooldown.
 
 An eligible skill check starts that cooldown and rolls its chance before resource arbitration. Chance `0.0` always fails and `1.0` always succeeds without consuming a random draw. A failed roll claims no action resource. A successful roll keeps its cooldown if resources are unavailable or final target/item validation fails; it is neither cached nor retried before the next normal check. Items are exchanged or consumed only after the action wins resources. Bow does not fall back to its other mode after a selected-mode failure. Wind charge checks throw in the same tick only when bounce's chance fails; a successful bounce roll does not fall back after later failure.
 
@@ -445,19 +456,108 @@ Currently, players must manually add PmbAi using the data merge command, a summo
 PmbAi:
     {
         shield:{<parameters>},
+        air_tracking:{<parameters>},
         mace:{<parameters>},
         bow:{<parameters>},
         ...
     }
 ```
 
-shield, wind_charge, mace, bow, and ender_pearl are currently implemented.
+shield, wind_charge, ender_pearl, mace, bow, and air_tracking are currently implemented.
+
+</details>
+
+### air tracking
+
+`air_tracking` is an independent movement skill. It begins airborne steering only while an enabled listed source supplies a valid context; the first valid ID in `activationSkills` wins. The default list lets a wind bounce stay tracked through ascent and descent, then lets a natural falling mace supply tracking anywhere inside FOLLOW_RANGE. It keeps vertical velocity, accelerates horizontally toward the target, and turns only if optional `LOOK` is available.
+
+<details>
+<summary>parameters structure</summary>
+
+```text
+air_tracking:
+    {
+        enable: <bool>,
+        activationSkills: [<string>, ...],
+        trackAcceleration: <float>,
+        trackMaxHorizontalSpeed: <float>,
+        trackDurationTicks: <int>,
+        requireEyeSight: <bool>
+    }
+```
+
+</details>
+
+<details>
+<summary>details of parameters</summary>
+
+```text
+enable
+Meaning: Whether airborne tracking may run
+Type: bool
+Range: 0b, 1b
+Default: 0b
+
+activationSkills
+Meaning: Ordered registered PMB skill IDs that may provide a tracking context
+Type: list of strings
+Range: registered skill IDs except air_tracking; no duplicate entries
+Default: ["wind_charge","mace"]
+
+trackAcceleration
+Meaning: Horizontal velocity added per control tick toward the source target
+Type: float
+Range: [0.0f, 1.0f]
+Default: 0.012f
+
+trackMaxHorizontalSpeed
+Meaning: Maximum horizontal speed after airborne tracking correction
+Type: float
+Range: [0.0f, 3.0f]
+Default: 0.3f
+
+trackDurationTicks
+Meaning: Maximum actual control ticks for a latched tracking session
+Type: integer
+Range: [-1, 72000]
+Default: -1
+Note: -1 continues to the terminal condition; 0 permits the source action but creates no session
+
+requireEyeSight
+Meaning: Whether a new session needs line of sight to its target
+Type: bool
+Range: 0b, 1b
+Default: 1b
+Note: sight is checked only when a session begins
+```
+
+</details>
+
+<details>
+<summary>advanced lifecycle and scheduler behaviour</summary>
+
+A wind bounce is a latched source: after a successful bounce it waits for the next airborne control tick, then remains eligible across ascent and descent even though wind's instant action has ended. The captured bounce target remains authoritative despite later vanilla/Faction target changes, and is replaced only by the next successful bounce or invalidated by its own lifecycle. Mace is conditional: a usable enabled mace, falling Mob, current authority target, and target anywhere inside FOLLOW_RANGE provide a source, including inside `smashRange`. Any other listed registered skill is generic and is eligible while its sustained scheduler phase is active. A higher listed valid source immediately supersedes a lower source; after it becomes invalid, the lower source is considered again on the next tick.
+
+`trackDurationTicks:-1` continues to landing, water, invalid source/target, strategy omission, or navigation preemption. A positive value supplies exactly that many actual control ticks. Tracking requires `NAVIGATION`, preserves Y velocity, and applies `trackAcceleration` horizontally toward the target (away from an evasive wind threat), capped by `trackMaxHorizontalSpeed`. It turns only if optional `LOOK` is available; denial of that optional resource neither cancels tracking nor forces a rotation, and the remaining wind-bounce pose does not bypass that ownership to look down. Wind-bounce landing sound and fall-immunity remain independent. K debug distinguishes the waiting latch, active duration, invalid target, non-airborne state, priority omission, and optional LOOK denial.
+
+</details>
+
+<details>
+<summary>command examples</summary>
+
+```mcfunction
+/pmb skills skill @e[type=minecraft:zombie,limit=1] air_tracking append [enable=1b,activationSkills=["wind_charge","mace"],trackAcceleration=0.012f,trackMaxHorizontalSpeed=0.3f,trackDurationTicks=-1,requireEyeSight=1b]
+/pmb skills skill @e[type=minecraft:zombie,limit=1] air_tracking delete []
+```
 
 </details>
 
 ### wind charge
 
-The wind-charge AI gives mobs holding a vanilla wind charge two modes: throwing and self-bouncing. It also provides a shared foundation for wind-charge mace and future wind-charge spear behaviours. The mace skill now supplies a dedicated falling-smash check and can work with post-bounce target retention and airborne movement. Dedicated wind-charge spear attack decisions are not implemented yet.
+The wind-charge AI gives mobs holding a vanilla wind charge two modes: throwing and self-bouncing. Bounce is preferred at close range; throw is used at range. `air_tracking` optionally handles its post-bounce movement.
+
+<details>
+<summary>activation, behaviour, and compatibility</summary>
 
 Conditions for wind-charge use:
 
@@ -480,6 +580,8 @@ The downward bounce uses the vanilla living-entity impulse fall-protection conte
 Airborne follow-up after a wind bounce is controlled by independent `air_tracking`, not wind-charge fields. Consuming the final wind charge does not cancel an already-latched session.
 
 A grounded bounce retains its existing two-tick launch grace. On the first tick that meets the landing termination boundary, it releases LOOK before scheduler arbitration and before writing pose or look state, so an ended bounce cannot reject another otherwise valid skill check.
+
+</details>
 
 <details>
 <summary>parameters structure</summary>
@@ -610,7 +712,10 @@ data merge entity @e[type=zombie,sort=nearest,limit=1] {PmbAi:{wind_charge:{enab
 
 ### ender pearl
 
-Ender-pearl AI lets a mob holding a vanilla ender pearl in either hand calculate and throw a trajectory automatically. Ordinary combat uses the current attack target as the destination. During Faction passively_evasive or actively_evasive flight, it instead uses an escape position away from the current avoid threat.
+Ender-pearl AI calculates a fixed-angle throw for a held vanilla pearl. Combat leads the attack target; Faction evasion instead selects an escape destination away from its threat.
+
+<details>
+<summary>activation, trajectory, and evasion details</summary>
 
 Conditions for a throw check:
 
@@ -630,6 +735,8 @@ Pearls are not thrown while their launch point (0.1 blocks below eye height) is 
 minThrowRange and maxThrowRange define the ordinary combat throw-check interval, preventing repeated pearl use after a target gets too close. They do not guarantee that the configured maxThrowPower and throwAngle physically cover the whole interval. Faction evasion ignores minThrowRange: with requireEyeSight 1b, a check is allowed whenever the avoid threat is visible and no farther than maxThrowRange; 0b skips only that visibility requirement. The pearl is neither thrown toward that threat nor used to write an attack target. Its destination prefers the current reachable escape-navigation target that is farther from the threat and is clamped to maxThrowRange; without a valid navigation target, it uses a stable directly-away position. Pearl impact continues through vanilla ender-pearl teleportation, collision, and damage handling.
 
 throwAccuracy 1.0 adds no random spread; lower values add progressively more spread. With doConsume 0b, the held pearl only acts as required equipment and is not consumed. With doConsume 1b, one pearl is consumed from the hand that actually swings after a successful release, and the final pearl explicitly synchronizes an empty hand. Range and chance checks never consume an item early.
+
+</details>
 
 <details>
 <summary>parameters structure</summary>
@@ -777,6 +884,9 @@ data merge entity @e[type=zombie,sort=nearest,limit=1] {PmbAi:{ender_pearl:{enab
 
 Mace AI executes in mainhand. A vanilla mace already there is used directly; otherwise FetchSource supplies a permanent exchange. An offhand-source swap reserves both hands plus SMASH for that tick. Falling, target, chance and cooldown conditions still apply. Mace does not accept preferredHand.
 
+<details>
+<summary>activation and damage details</summary>
+
 Conditions for a smash check:
 
 1. The entity is a mob and FetchSource resolves a vanilla mace to the required main-hand attack path.
@@ -791,6 +901,8 @@ Once these conditions are met, the mob immediately performs one hitChance check.
 While the skill is enabled and the mob is in a valid falling-mace state, attacks attempted directly by an ordinary melee goal without this skill's check are prevented. This stops vanilla AI from bypassing hitChance, smashCooldownTicks, or damageReduction. Ordinary melee attacks remain unchanged whenever the mob is not in a valid mace-smash fall.
 
 Vanilla first calculates base attack damage, enchantments, and fall-height mace bonus. The final result of the skill-triggered smash is then multiplied by (1-damageReduction). The default damageReduction of 0.5 therefore halves the final mace damage. Vanilla mace sounds, knockback, durability use, and fall-state handling are preserved.
+
+</details>
 
 <details>
 <summary>parameters structure</summary>
@@ -887,7 +999,10 @@ data merge entity @e[type=zombie,sort=nearest,limit=1] {PmbAi:{mace:{enable:0b}}
 
 ### bow
 
-Bow AI selects its use hand through preferredHand, default main. A vanilla bow already in that hand is used directly; otherwise FetchSource supplies a permanent exchange. Bow remains a main-category skill, but sustained drawing reserves only its actual hand, USE_ITEM and LOOK. It provides low-trajectory line and high-angle arc modes; range controls check eligibility while power and vanilla physics determine actual reach.
+Bow AI provides low-trajectory `line` and high-angle `arc` modes. It selects its use hand through preferredHand, defaulting to main; range controls check eligibility while power and vanilla physics determine actual reach.
+
+<details>
+<summary>activation, ammunition, movement, and rendering details</summary>
 
 Both modes require a living, attackable target. With requireEyeSight 1b, that target must also be visible; 0b skips only this visibility requirement. For an original vanilla TargetGoal only, 0b may also retain its already acquired mob.getTarget() through obstruction when it is alive, in the same level, inside FOLLOW_RANGE and an enabled line or arc shooting range, and a bow is available under the destination-hand and FetchSource rules. It never changes initial target discovery. This TargetGoal-only rule does not affect Faction or Brain targeting, any evasive path including pearl evasion, general melee, or other skills. line can be checked from lineMinRange through lineMaxRange. arc can be checked from arcMinRange through arcMaxRange. Setting either ShootChance to 0.0 completely disables that mode.
 
@@ -904,6 +1019,8 @@ Ordinary melee is suppressed by a lightweight live predicate only when bow is en
 A scheduler-selected PMB mace smash remains allowed, so a valid bow suppression state does not cancel a legal falling-mace combination. Bow movement takes control only after a successful check has acquired the required action resources, bound the bow and begun drawing. During that draw, entering the corresponding SafeDistance makes the mob retreat while aiming regardless of mobileWhileShooting. Outside SafeDistance but still inside the mode range, mobileWhileShooting 1b enables skeleton-like randomized forward, backward, and sideways strafing; 0b keeps the shooter stationary. Cooldown, a failed chance check, missing ammunition or an action-resource conflict submits no bow locomotion and no longer intercepts vanilla navigation or movement control. Whether the mob actually pursues still depends on an applicable vanilla Goal or Brain behavior remaining able to run. Vanilla RangedBowAttackGoal suppression remains broader and unchanged so skeletons cannot bypass PMB firing rules.
 
 Vanilla RangedBowAttackGoal draw, fire, and strafe writes are suppressed so skeletons cannot bypass the configured modes, chances, cooldowns, or mobileWhileShooting; PMB's own retreat and randomized movement commands remain permitted. The bow pose is forcibly reapplied at the end of model animation, preventing zombie attack animations, illager crossed arms, or other model-specific animations from replacing it. The special held-item layers used by vindicators and evokers also render the bow and arms.
+
+</details>
 
 <details>
 <summary>parameters structure</summary>
@@ -1139,6 +1256,9 @@ data merge entity @e[type=skeleton,sort=nearest,limit=1] {PmbAi:{bow:{enable:0b}
 Basic shield usage is currently implemented.
 An eligible mob repeatedly checks whether it can raise its shield, with a configurable chance of success.
 
+<details>
+<summary>activation, blocking, and shield-break details</summary>
+
 Conditions for raising a shield:
 
 1. The entity is a mob and has a vanilla shield in an allowed activation source. A held shield is used directly in its actual hand; an inventory shield is temporarily placed in the off hand.
@@ -1170,6 +1290,8 @@ A fully blocked attack does not produce vanilla critical-hit particles, but the 
 After a true shield break, the mob enters shield-break vulnerability for disableVulnerTicks game ticks. During this window, the mob cannot attack, keeps clearing its target and navigation, and suppresses AI movement input, while existing velocity from knockback or other external forces is preserved. It renders with the same shaking style used by zombie-villager curing or piglin zombification. This does not enable NoAI, so normal physics such as gravity continue to apply. Damage received during this window is multiplied by vulnerDamageMultiplier. If disableVulnerTicks is 0, this vulnerability window is skipped.
 
 Entities from the Guard Villagers namespace are excluded from this behaviour to avoid conflicting with that mod.
+
+</details>
 
 <details>
 <summary>parameters structure</summary>

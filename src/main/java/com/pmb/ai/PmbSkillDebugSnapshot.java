@@ -82,8 +82,7 @@ public record PmbSkillDebugSnapshot(int entityId, UUID entityUuid, String entity
 		List<String> executed = attempts.stream().filter(a -> a.status() == AttemptStatus.EXECUTED)
 				.map(CandidateAttempt::owner).toList();
 		PmbAirTrackingController air = scheduler.airTracking();
-		int airTicks = air.remaining();
-		String airState = airTicks < 0 ? "infinite" : airTicks == 0 ? "inactive" : "remaining=" + airTicks;
+		String airState = air.trackingState();
 		List<SkillState> skills = List.of(
 				new SkillState("shield", ai.shield().isConfigured(), ai.shield().isEnabled(),
 						active("shield", sustained, executed),

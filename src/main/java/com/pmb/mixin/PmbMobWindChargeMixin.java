@@ -82,8 +82,10 @@ public abstract class PmbMobWindChargeMixin extends LivingEntity implements PmbS
 		if (pmb$bouncePoseTicks > 0) {
 			pmb$bouncePoseTicks--;
 			PmbSkillScheduler scheduler = PmbSkillScheduler.of(mob);
-			if (scheduler.ownsResource("wind", PmbSkillScheduler.Resource.LOOK)
-					|| !scheduler.ownsResource("air_tracking", PmbSkillScheduler.Resource.LOOK))
+			// A completed bounce no longer owns LOOK on later ticks. Its pose may remain,
+			// but it must never force a downward look while air_tracking owns (or was
+			// denied) that optional resource.
+			if (scheduler.ownsResource("wind", PmbSkillScheduler.Resource.LOOK))
 				pmb$lookStraightDown(mob);
 		}
 		// A throw started during bounce owns LOOK for four ticks and is applied after the

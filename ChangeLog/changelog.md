@@ -11,6 +11,18 @@ Year.Month.Day-No.
 
 ## Record
 
+### 26.9.19-1
+
+Fixed `air_tracking` wind-bounce activation. A successful bounce now latches its captured target until that target becomes invalid, crosses worlds, landing/water/timeout ends the session, or a later successful bounce replaces it; later vanilla or Faction retargeting no longer cancels ascent and descent tracking. The controller waits for the next airborne tick instead of clearing a just-committed ground bounce. Falling mace is now an air-tracking source throughout FOLLOW_RANGE, including inside `smashRange`.
+
+K debug now distinguishes a waiting wind latch, active duration, invalid target, non-airborne state, priority omission, and optional LOOK denial. Optional LOOK still only controls facing: its denial leaves navigation and horizontal steering active without forcing a turn, and the remaining wind-bounce pose no longer bypasses ownership to force a downward look. The full default `air_tracking` object in the documentation is now folded; the visible enable example is `air_tracking:{enable:1b}`.
+
+### 26.9.18-3
+
+Reorganized the bilingual README and full documentation into a layered format. `air_tracking` now appears as a peer `PmbAi` skill section with the same visible overview, parameter structure, folded parameter reference, advanced lifecycle, and command-example layout as the item skills. Scheduler, per-skill activation/physics/compatibility, and version-history detail now use folded sections so the default reading path stays focused on behaviour, triggers, and a key configuration example.
+
+Corrected current documentation to list all six skills, the 1–256 inventory range, the current `air_tracking` fields and defaults, and the removal of the old wind airborne-tracking fields. Historical records remain preserved.
+
 ### 26.9.18-2
 
 Added independent `PmbAi.air_tracking`. Defaults are `enable:0b`, `activationSkills:["wind_charge","mace"]`, `trackAcceleration:0.012f`, `trackMaxHorizontalSpeed:0.3f`, `trackDurationTicks:-1`, and `requireEyeSight:1b`. Its ordered source list accepts every registered PMB skill except itself. A wind bounce creates a latch across ascent and descent; a usable falling mace with its authority target inside FOLLOW_RANGE provides a conditional source before smash range; another listed skill provides a generic source while it owns a sustained phase. Higher listed sources supersede lower sources immediately, which are re-evaluated on the next tick.
