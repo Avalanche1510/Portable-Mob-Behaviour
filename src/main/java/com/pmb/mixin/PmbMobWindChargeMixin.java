@@ -18,6 +18,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.Mob;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.projectile.hurtingprojectile.windcharge.WindCharge;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -51,6 +52,10 @@ public abstract class PmbMobWindChargeMixin extends LivingEntity implements PmbS
 	private boolean pmb$bounceAwaitingLanding;
 	@Unique
 	private boolean pmb$bounceWasAirborne;
+	@Unique private LivingEntity pmb$pendingBounceTarget;
+	@Unique private boolean pmb$pendingBounceEvasive;
+	@Unique private PmbSkillItemAccess.Resolved pmb$pendingBounceItem;
+	@Unique private int pmb$pendingBounceReleaseTick;
 
 	protected PmbMobWindChargeMixin(EntityType<? extends LivingEntity> entityType, Level level) {
 		super(entityType, level);
@@ -65,6 +70,7 @@ public abstract class PmbMobWindChargeMixin extends LivingEntity implements PmbS
 		Mob mob = (Mob) (Object) this;
 		PmbWindChargeAiData windChargeAi = ((PmbAiHolder) this).pmb$getAiData().windCharge();
 		if (!isAlive()) {
+			pmb$clearPendingBounce();
 			pmb$clearBounceState("death");
 			pmb$clearThrowLook();
 			pmb$clearBounceLanding();
@@ -75,6 +81,7 @@ public abstract class PmbMobWindChargeMixin extends LivingEntity implements PmbS
 
 		PmbShieldAiData shieldAi = ((PmbAiHolder) this).pmb$getAiData().shield();
 		if (!windChargeAi.isEnabled() || mob.isNoAi() || shieldAi.isVulnerable()) {
+			pmb$clearPendingBounce();
 			pmb$clearBounceState("disabled_or_blocked");
 			pmb$clearThrowLook();
 			return;
@@ -91,6 +98,22 @@ public abstract class PmbMobWindChargeMixin extends LivingEntity implements PmbS
 		// A throw started during bounce owns LOOK for four ticks and is applied after the
 		// bounce look, so it visibly overlays that look while bounce flight continues.
 		pmb$tickThrowLook(mob);
+		if (pmb$pendingBounceTarget != null) {
+			if (!pmb$validPendingBounce(mob, windChargeAi)) { pmb$clearPendingBounce(); return; }
+			pmb$lookStraightDown(mob);
+			if (mob.tickCount >= pmb$pendingBounceReleaseTick) {
+				LivingEntity pendingTarget = pmb$pendingBounceTarget;
+				PmbSkillItemAccess.Resolved pendingItem = pmb$pendingBounceItem;
+				boolean pendingEvasive = pmb$pendingBounceEvasive;
+				PmbSkillScheduler.of(mob).offerDynamicPlannedResult("wind", "bounce_release",
+						PmbSkillScheduler.Category.THROW, 10, () -> true,
+						() -> pmb$validPendingBounce(mob, windChargeAi),
+						() -> pmb$releaseWindChargeBounce(serverLevel, mob, pendingTarget,
+								windChargeAi, pendingEvasive, pendingItem, false),
+						() -> pendingItem.resources(PmbSkillScheduler.Resource.LOOK));
+			}
+			return;
+		}
 		LivingEntity evasiveTarget = ((PmbFactionMobState) mob).pmb$getFactionAvoidTarget();
 		boolean evasive = evasiveTarget != null && evasiveTarget.isAlive()
 				&& evasiveTarget.level() == level();
@@ -117,7 +140,9 @@ public abstract class PmbMobWindChargeMixin extends LivingEntity implements PmbS
 					}, () -> pmb$isCurrentWindTarget(mob, target, evasive, windChargeAi) && onGround()
 							&& distanceToSqr(target) <= windChargeAi.bounceRange() * windChargeAi.bounceRange()
 							&& PmbSkillItemAccess.stillMatches(mob, item),
-					() -> pmb$performWindChargeBounce(serverLevel, mob, target, windChargeAi, evasive, item),
+					() -> windChargeAi.bouncePostJumpTicks() == 0
+							? pmb$releaseWindChargeBounce(serverLevel, mob, target, windChargeAi, evasive, item, true)
+							: pmb$startWindChargeBounce(mob, target, windChargeAi, evasive, item),
 					() -> item.resources(PmbSkillScheduler.Resource.LOOK));
 			if (throwEligible) {
 				PmbSkillScheduler.of(mob).offerDynamicPlannedResult("wind", "throw", PmbSkillScheduler.Category.THROW, 10,
@@ -149,10 +174,16 @@ public abstract class PmbMobWindChargeMixin extends LivingEntity implements PmbS
 	}
 
 	@Override
-	public void pmb$cancelWindSkill() { pmb$clearBounceState("preempt_or_strategy"); pmb$clearThrowLook(); }
+	public void pmb$cancelWindSkill() { pmb$clearPendingBounce(); pmb$clearBounceState("preempt_or_strategy"); pmb$clearThrowLook(); }
 
 	@Override
 	public void pmb$claimWindResources(PmbSkillScheduler scheduler) {
+		if (pmb$pendingBounceTarget != null) {
+			Mob mob = (Mob) (Object) this;
+			PmbWindChargeAiData data = ((PmbAiHolder) this).pmb$getAiData().windCharge();
+			scheduler.maintainPhase("wind", "bounce_preparation", () -> pmb$validPendingBounce(mob, data),
+					this::pmb$clearPendingBounce, pmb$pendingBounceItem.resources(PmbSkillScheduler.Resource.LOOK));
+		}
 		if (pmb$throwLookTicks > 0) scheduler.maintainPhase("wind", "throw_follow_through",
 				this::pmb$clearThrowLook, new PmbSkillScheduler.Resource[0], PmbSkillScheduler.Resource.LOOK);
 	}
@@ -218,8 +249,38 @@ public abstract class PmbMobWindChargeMixin extends LivingEntity implements PmbS
 	}
 
 	@Unique
-	private PmbSkillScheduler.CommitResult pmb$performWindChargeBounce(ServerLevel level, Mob mob, LivingEntity target,
+	private PmbSkillScheduler.CommitResult pmb$startWindChargeBounce(Mob mob, LivingEntity target,
 			PmbWindChargeAiData windChargeAi, boolean evasive, PmbSkillItemAccess.Resolved item) {
+		if (!onGround() || hasEffect(MobEffects.WEAKNESS)) return PmbSkillScheduler.CommitResult.FAILED;
+		pmb$pendingBounceTarget = target;
+		pmb$pendingBounceEvasive = evasive;
+		pmb$pendingBounceItem = item;
+		pmb$pendingBounceReleaseTick = mob.tickCount + windChargeAi.bouncePostJumpTicks();
+		pmb$clearThrowLook();
+		pmb$lookStraightDown(mob);
+		jumpFromGround();
+		PmbSkillScheduler.of(mob).markCurrentCandidateExecuted("wind");
+		return PmbSkillScheduler.CommitResult.COMMITTED;
+	}
+
+	@Unique
+	private boolean pmb$validPendingBounce(Mob mob, PmbWindChargeAiData data) {
+		return pmb$pendingBounceTarget != null && pmb$pendingBounceItem != null
+				&& !onGround() && !hasEffect(MobEffects.WEAKNESS)
+				&& pmb$isCurrentWindTarget(mob, pmb$pendingBounceTarget, pmb$pendingBounceEvasive, data)
+				&& PmbSkillItemAccess.stillMatches(mob, pmb$pendingBounceItem);
+	}
+
+	@Unique
+	private void pmb$clearPendingBounce() {
+		pmb$pendingBounceTarget = null;
+		pmb$pendingBounceItem = null;
+		pmb$pendingBounceReleaseTick = 0;
+	}
+
+	@Unique
+	private PmbSkillScheduler.CommitResult pmb$releaseWindChargeBounce(ServerLevel level, Mob mob, LivingEntity target,
+			PmbWindChargeAiData windChargeAi, boolean evasive, PmbSkillItemAccess.Resolved item, boolean jumpNow) {
 		PmbSkillItemAccess.ActionBinding lease = PmbSkillItemAccess.acquire(mob, item);
 		if (lease == null) return PmbSkillScheduler.CommitResult.FAILED;
 		InteractionHand hand = lease.hand();
@@ -233,18 +294,22 @@ public abstract class PmbMobWindChargeMixin extends LivingEntity implements PmbS
 		PmbSkillScheduler.of(mob).airTracking().latchWindBounce(mob, target, evasive);
 		pmb$lookStraightDown(mob);
 		swing(hand, true);
-		jumpFromGround();
+		if (jumpNow) jumpFromGround();
 		PmbSkillScheduler.of(mob).markCurrentCandidateExecuted("wind");
 
 		Vec3 start = new Vec3(getX(), getY() + 0.15D, getZ());
-		setIgnoreFallDamageFromCurrentImpulse(true, start);
 		WindCharge projectile = new WindCharge(level, start.x(), start.y(), start.z(), Vec3.ZERO);
+		((com.pmb.ai.PmbWindImpulseHolder) projectile).pmb$setImpulseSource("wind_charge");
 		projectile.setOwner(this);
 		projectile.shoot(0.0D, -1.0D, 0.0D, 1.5F, 0.0F);
 		level.addFreshEntity(projectile);
 		pmb$consumeWindCharge(hand, windChargeAi);
 		pmb$playWindChargeThrowSound(level);
 		lease.authorizeAction(mob);
+		if (!jumpNow) {
+			pmb$clearPendingBounce();
+			PmbSkillScheduler.of(mob).dropPhase("wind", "bounce_preparation");
+		}
 		return PmbSkillScheduler.CommitResult.COMMITTED;
 	}
 

@@ -1,7 +1,8 @@
 package com.pmb.faction;
 
 import com.pmb.ai.PmbSkillScheduler;
-import com.pmb.ai.PmbMovementController;
+import com.pmb.ai.PmbAiHolder;
+import com.pmb.ai.PmbAmmoAccess;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
@@ -12,22 +13,25 @@ import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.ai.Brain;
 import net.minecraft.world.entity.ai.navigation.FlyingPathNavigation;
 import net.minecraft.world.entity.ai.navigation.WaterBoundPathNavigation;
-import net.minecraft.world.entity.ai.util.DefaultRandomPos;
 import net.minecraft.world.entity.ai.memory.MemoryModuleType;
 import net.minecraft.world.entity.ai.memory.MemoryStatus;
 import net.minecraft.world.entity.monster.piglin.AbstractPiglin;
 import net.minecraft.world.entity.monster.piglin.Piglin;
 import net.minecraft.world.entity.monster.piglin.PiglinAi;
 import net.minecraft.world.entity.monster.piglin.PiglinBrute;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
 
 import java.util.Comparator;
 import java.util.List;
+import java.util.ArrayDeque;
 
 public final class PmbFactionAi {
 	private static final int SCAN_INTERVAL = 10;
 	private static final int FLEE_REPATH_INTERVAL = 10;
+	private record HurtBroadcast(AbstractPiglin victim, LivingEntity attacker) {}
+	private static final ThreadLocal<ArrayDeque<HurtBroadcast>> HURT_BROADCAST = new ThreadLocal<>();
 
 	private PmbFactionAi() {
 	}
@@ -75,6 +79,7 @@ public final class PmbFactionAi {
 		if (!isCombatTargetable(target)) {
 			return false;
 		}
+		if (!isValidHurtBroadcastResponse(mob, target) && isSuppressedPiglinTarget(mob, target)) return false;
 		if (preservesPiglinAvoidanceAgainst(mob, target)) {
 			return false;
 		}
@@ -109,6 +114,122 @@ public final class PmbFactionAi {
 
 	public static boolean preservesPiglinGreed(Piglin piglin) {
 		return piglinCompatRules(piglin).greed();
+	}
+
+	public static boolean pausesActiveSkills(Piglin piglin) {
+		if (!hasValidFaction(piglin)) return false;
+		PmbPiglinCompatRules rules = piglinCompatRules(piglin);
+		return rules.greed() && rules.admiringPausesActiveSkills()
+				&& piglin.getBrain().hasMemoryValue(MemoryModuleType.ADMIRING_ITEM);
+	}
+
+	public static boolean preservesAdmirationOnHurt(Piglin piglin) {
+		if (!hasValidFaction(piglin)) return false;
+		PmbPiglinCompatRules rules = piglinCompatRules(piglin);
+		return rules.greed()
+				&& rules.effectiveHurtAdmirationDisableTicks() == 0
+				&& piglin.getBrain().hasMemoryValue(MemoryModuleType.ADMIRING_ITEM);
+	}
+
+	/** -1 leaves vanilla timing untouched for a non-member or disabled greed. */
+	public static int piglinHurtDisableTicks(Piglin piglin) {
+		if (!hasValidFaction(piglin)) return -1;
+		PmbPiglinCompatRules rules = piglinCompatRules(piglin);
+		if (!rules.greed()) return -1;
+		return rules.effectiveHurtAdmirationDisableTicks();
+	}
+
+	public static void onPiglinDirectHurt(Piglin piglin, LivingEntity attacker) {
+		if (isCombatTargetable(attacker)) clearSuppressionOnFreshAttack(piglin, attacker);
+	}
+
+	public static void withVanillaHurtBroadcast(AbstractPiglin victim, LivingEntity attacker, Runnable action) {
+		beginVanillaHurtBroadcast(victim, attacker);
+		try {
+			action.run();
+		} finally {
+			endVanillaHurtBroadcast();
+		}
+	}
+
+	private static void beginVanillaHurtBroadcast(AbstractPiglin victim, LivingEntity attacker) {
+		ArrayDeque<HurtBroadcast> stack = HURT_BROADCAST.get();
+		if (stack == null) {
+			stack = new ArrayDeque<>();
+			HURT_BROADCAST.set(stack);
+		}
+		stack.push(new HurtBroadcast(victim, attacker));
+	}
+
+	private static void endVanillaHurtBroadcast() {
+		ArrayDeque<HurtBroadcast> stack = HURT_BROADCAST.get();
+		if (stack != null && !stack.isEmpty()) stack.pop();
+		if (stack == null || stack.isEmpty()) HURT_BROADCAST.remove();
+	}
+
+	static int hurtBroadcastDepth() {
+		ArrayDeque<HurtBroadcast> stack = HURT_BROADCAST.get();
+		return stack == null ? 0 : stack.size();
+	}
+
+	public static void onVanillaGroupAngerWritten(AbstractPiglin responder, LivingEntity attacker) {
+		if (!(responder instanceof Piglin piglin) || !angerWriteApplies(
+				isValidHurtBroadcastResponse(piglin, attacker), hasPiglinAngerTarget(piglin, attacker))) return;
+		clearSuppressionOnFreshAttack(piglin, attacker);
+		onPiglinAllyAnger(piglin, attacker);
+	PmbBrainAiDebug.event(piglin, "vanilla_group_anger_written", () ->
+				"victim=" + HURT_BROADCAST.get().peek().victim().getId() + " target=" + attacker.getId()
+						+ " angryAt=" + attacker.getUUID());
+	}
+
+	private static boolean isValidHurtBroadcastResponse(Mob responder, LivingEntity attacker) {
+		if (!(responder instanceof Piglin) || !isCombatTargetable(attacker)
+				|| !(responder.level() instanceof ServerLevel level)) return false;
+		ArrayDeque<HurtBroadcast> stack = HURT_BROADCAST.get();
+		if (stack == null) return false;
+		HurtBroadcast broadcast = stack.peek();
+		if (broadcast == null) return false;
+		PmbFactionSavedData data = PmbFactionSavedData.get(level.getServer());
+		String factionId = PmbFactionResolver.factionOf(responder);
+		if (factionId == null || data.get(factionId) == null) return false;
+		return validHurtBroadcast(broadcast.victim() == responder,
+				broadcast.attacker() == null || broadcast.attacker() == attacker,
+				PmbFactionResolver.isMemberOrAllied(data, responder, broadcast.victim()),
+				PmbFactionResolver.isMemberOrAllied(data, responder, attacker));
+	}
+
+	static boolean validHurtBroadcast(boolean responderIsVictim, boolean attackerMatches,
+			boolean victimIsAlly, boolean attackerIsAlly) {
+		return !responderIsVictim && attackerMatches && victimIsAlly && !attackerIsAlly;
+	}
+
+	static boolean angerWriteApplies(boolean validHurtBroadcast, boolean angryAtWrittenForAttacker) {
+		return validHurtBroadcast && angryAtWrittenForAttacker;
+	}
+
+	public static void onPiglinAllyAnger(Piglin piglin, LivingEntity attacker) {
+		if (!isCombatTargetable(attacker) || !(piglin.level() instanceof ServerLevel level)) return;
+		PmbPiglinCompatRules rules = piglinCompatRules(piglin);
+		if (!rules.greed() || !rules.hurtAdmirationPolicy().equals("combat")
+				|| rules.effectiveHurtAdmirationDisableTicks() == 0
+				|| !piglin.getBrain().hasMemoryValue(MemoryModuleType.ADMIRING_ITEM)) return;
+		if (PmbFactionResolver.isMemberOrAllied(PmbFactionSavedData.get(level.getServer()), piglin, attacker)) return;
+		if (!piglin.canAttack(attacker)) return;
+		piglin.getBrain().eraseMemory(MemoryModuleType.ADMIRING_ITEM);
+		piglin.getBrain().setMemoryWithExpiry(MemoryModuleType.ADMIRING_DISABLED, true,
+				rules.hurtAdmirationDisableTicks());
+		var held = piglin.getItemInHand(InteractionHand.OFF_HAND);
+		if (held.isEmpty()) return;
+		piglin.setItemInHand(InteractionHand.OFF_HAND, net.minecraft.world.item.ItemStack.EMPTY);
+		var remainder = rules.hurtAdmiredItemPolicy().equals("store")
+				? piglin.getInventory().addItem(held.copy()) : held.copy();
+		if (!remainder.isEmpty()) {
+			var dropped = piglin.spawnAtLocation(level, remainder);
+			if (dropped != null) dropped.setPickUpDelay(40);
+			else piglin.setItemInHand(InteractionHand.OFF_HAND, remainder);
+		}
+		PmbBrainAiDebug.event(piglin, "PMB_admiration_interrupt", () ->
+				"attacker=" + attacker.getId() + " itemPolicy=" + rules.hurtAdmiredItemPolicy());
 	}
 
 	public static boolean shouldFightNearestZombified(Piglin piglin) {
@@ -153,6 +274,7 @@ public final class PmbFactionAi {
 		if (definition == null) {
 			return;
 		}
+		observePiglinUnreachable(piglin, definition);
 
 		Brain<?> brain = piglin.getBrain();
 		LivingEntity vanillaAvoid = getRegisteredMemory(brain, MemoryModuleType.AVOID_TARGET);
@@ -175,17 +297,42 @@ public final class PmbFactionAi {
 		}
 
 		brain.eraseMemory(MemoryModuleType.AVOID_TARGET);
-		brain.eraseMemory(MemoryModuleType.WALK_TARGET);
+		// FIGHT also writes WALK_TARGET. Clearing it every time CORE restores a
+		// suppressed vanilla avoidance memory repeatedly interrupts pursuit.
+		if (shouldClearAvoidanceWalkTarget(state.pmb$getFactionCombatTarget() != null,
+				getRegisteredMemory(brain, MemoryModuleType.ATTACK_TARGET) != null)) {
+			brain.eraseMemory(MemoryModuleType.WALK_TARGET);
+		}
+	}
+
+	/** Run the same publication boundary before each supported vanilla Brain chooses an activity. */
+	public static void prepareBrainActivityUpdate(Mob mob) {
+		if (!PmbBrainIntentCoordinator.supports(mob)
+				|| !(mob.level() instanceof ServerLevel level)) return;
+		String id = PmbFactionResolver.factionOf(mob);
+		PmbFactionDefinition definition = id == null ? null
+				: PmbFactionSavedData.get(level.getServer()).get(id);
+		if (definition == null) return;
+		if (mob instanceof Piglin piglin) preparePiglinActivityUpdate(piglin);
+		enforce(mob, (PmbFactionMobState) mob,
+				PmbFactionSavedData.get(level.getServer()), definition, true);
+	}
+
+	static boolean shouldClearAvoidanceWalkTarget(boolean factionCombat, boolean brainCombat) {
+		return !factionCombat && !brainCombat;
 	}
 
 	private static LivingEntity resolvePiglinAttackTarget(AbstractPiglin piglin, LivingEntity vanillaTarget) {
+		if (defersCombatForAdmiration(piglin)) return null;
 		PmbFactionMobState state = (PmbFactionMobState) piglin;
 		LivingEntity factionTarget = state.pmb$getFactionCombatTarget();
 		if (isCombatTargetable(factionTarget) && factionTarget.level() == piglin.level()
-				&& !preservesPiglinAvoidanceAgainst(piglin, factionTarget)) {
+				&& !preservesPiglinAvoidanceAgainst(piglin, factionTarget)
+				&& !isSuppressedPiglinTarget(piglin, factionTarget)) {
 			return factionTarget;
 		}
-		if (!isCombatTargetable(vanillaTarget) || !(piglin.level() instanceof ServerLevel level)) {
+		if (!isCombatTargetable(vanillaTarget) || isSuppressedPiglinTarget(piglin, vanillaTarget)
+				|| !(piglin.level() instanceof ServerLevel level)) {
 			return null;
 		}
 		PmbFactionSavedData data = PmbFactionSavedData.get(level.getServer());
@@ -201,6 +348,7 @@ public final class PmbFactionAi {
 	}
 
 	public static void authorizeRevenge(Mob mob, LivingEntity attacker) {
+		clearSuppressionOnFreshAttack(mob, attacker);
 		PmbFactionMobState state = (PmbFactionMobState) mob;
 		if (!isCombatTargetable(attacker) || preservesPiglinAvoidanceAgainst(mob, attacker)) {
 			state.pmb$setFactionCombatTarget(null);
@@ -210,9 +358,11 @@ public final class PmbFactionAi {
 		state.pmb$setFactionAvoidTarget(null);
 		state.pmb$setFactionCombatTarget(attacker);
 		state.pmb$setFactionGroupRevenge(true);
+		if (mob instanceof Piglin piglin) onPiglinAllyAnger(piglin, attacker);
 	}
 
 	public static void authorizeNeutralRetaliation(Mob mob, LivingEntity attacker) {
+		clearSuppressionOnFreshAttack(mob, attacker);
 		if (!(mob.level() instanceof ServerLevel level) || !isCombatTargetable(attacker)) {
 			return;
 		}
@@ -258,6 +408,7 @@ public final class PmbFactionAi {
 		}
 		state.pmb$setFactionHurtTimestamp(timestamp);
 		LivingEntity attacker = mob.getLastHurtByMob();
+		clearSuppressionOnFreshAttack(mob, attacker);
 		if (!isInRange(mob, attacker, followRange)) {
 			return;
 		}
@@ -293,18 +444,26 @@ public final class PmbFactionAi {
 		}
 
 		LivingEntity combat = state.pmb$getFactionCombatTarget();
-		if (!isInRange(mob, combat, followRange)) {
+		boolean combatInRange = isInRange(mob, combat, followRange);
+		PmbFactionAttitude combatAttitude = combatInRange
+				? PmbFactionResolver.attitude(data, mob, combat) : null;
+		if (!retainsCombatTarget(combatInRange, combatAttitude,
+				combatInRange && preservesPiglinAvoidanceAgainst(mob, combat),
+				state.pmb$isFactionGroupRevenge()) || isSuppressedPiglinTarget(mob, combat)) {
 			state.pmb$setFactionCombatTarget(null);
 			state.pmb$setFactionGroupRevenge(false);
-		} else {
-			PmbFactionAttitude attitude = PmbFactionResolver.attitude(data, mob, combat);
-			if (preservesPiglinAvoidanceAgainst(mob, combat)
-					|| attitude == PmbFactionAttitude.ALLIED || (attitude != PmbFactionAttitude.HOSTILE
-					&& attitude != PmbFactionAttitude.NEUTRAL && !state.pmb$isFactionGroupRevenge())) {
-				state.pmb$setFactionCombatTarget(null);
-				state.pmb$setFactionGroupRevenge(false);
-			}
 		}
+	}
+
+	static boolean retainsCombatTarget(boolean inRange, PmbFactionAttitude attitude,
+			boolean piglinAvoids, boolean groupRevenge) {
+		return inRange && !piglinAvoids && attitude != PmbFactionAttitude.ALLIED
+				&& (attitude == PmbFactionAttitude.HOSTILE || attitude == PmbFactionAttitude.NEUTRAL
+					|| groupRevenge);
+	}
+
+	static <T> T scannedCombatTarget(T validatedCurrent, T nearestVisibleHostile) {
+		return nearestVisibleHostile != null ? nearestVisibleHostile : validatedCurrent;
 	}
 
 	private static void scan(Mob mob, ServerLevel level, PmbFactionMobState state, PmbFactionSavedData data,
@@ -330,16 +489,14 @@ public final class PmbFactionAi {
 		LivingEntity hostile = candidates.stream()
 				.filter(target -> PmbFactionResolver.attitude(data, mob, target) == PmbFactionAttitude.HOSTILE)
 				.filter(target -> !preservesPiglinAvoidanceAgainst(mob, target))
+				.filter(target -> !isSuppressedPiglinTarget(mob, target))
 				.filter(target -> mob.getSensing().hasLineOfSight(target))
 				.filter(mob::canAttack)
 				.min(Comparator.comparingDouble(mob::distanceToSqr)).orElse(null);
-		if (hostile != null) {
-			state.pmb$setFactionCombatTarget(hostile);
-			state.pmb$setFactionGroupRevenge(false);
-		} else if (state.pmb$getFactionCombatTarget() != null
-				&& PmbFactionResolver.attitude(data, mob, state.pmb$getFactionCombatTarget())
-						!= PmbFactionAttitude.NEUTRAL) {
-			state.pmb$setFactionCombatTarget(null);
+		LivingEntity current = state.pmb$getFactionCombatTarget();
+		LivingEntity selected = scannedCombatTarget(current, hostile);
+		if (selected != current) {
+			state.pmb$setFactionCombatTarget(selected);
 			state.pmb$setFactionGroupRevenge(false);
 		}
 	}
@@ -353,6 +510,29 @@ public final class PmbFactionAi {
 			piglin.getBrain().eraseMemory(MemoryModuleType.NEAREST_PLAYER_HOLDING_WANTED_ITEM);
 		}
 		LivingEntity avoid = state.pmb$getFactionAvoidTarget();
+		if (PmbBrainIntentCoordinator.choose(mob, definition, avoid,
+				state.pmb$getFactionCombatTarget()) == PmbBrainIntentCoordinator.Intent.ADMIRE) {
+			state.pmb$setFactionAdmiring(true);
+			// Retain the faction intent internally, but never expose an attack memory to
+			// vanilla FIGHT/CrossbowAttack while ADMIRING_ITEM owns the Brain.
+			// The explicit PMB-skill opt-out still controls the separate Mob target.
+			if (definition.vanillaCompatRules().piglin().admiringPausesActiveSkills()
+					&& mob.getTarget() != null) mob.setTarget(null);
+			else if (!definition.vanillaCompatRules().piglin().admiringPausesActiveSkills()
+					&& state.pmb$getFactionCombatTarget() != null
+					&& mob.getTarget() != state.pmb$getFactionCombatTarget())
+				mob.setTarget(state.pmb$getFactionCombatTarget());
+			if (mob.getBrain().hasMemoryValue(MemoryModuleType.ATTACK_TARGET))
+				mob.getBrain().eraseMemory(MemoryModuleType.ATTACK_TARGET);
+			if (avoid != null && getRegisteredMemory(mob.getBrain(), MemoryModuleType.AVOID_TARGET) == avoid)
+				mob.getBrain().eraseMemory(MemoryModuleType.AVOID_TARGET);
+			return;
+		}
+		if (state.pmb$wasFactionAdmiring()) {
+			state.pmb$setFactionAdmiring(false);
+			validateTargets(mob, state, data, Math.max(0.0D, mob.getAttributeValue(Attributes.FOLLOW_RANGE)));
+			avoid = state.pmb$getFactionAvoidTarget();
+		}
 		if (avoid != null) {
 			if (mob.getTarget() != null) {
 				mob.setTarget(null);
@@ -364,23 +544,12 @@ public final class PmbFactionAi {
 				mob.getBrain().setMemory(MemoryModuleType.AVOID_TARGET, avoid);
 			}
 			state.pmb$setFactionAvoiding(true);
-			PmbSkillScheduler.of(mob).movement().submit(mob, "faction_retreat",
-					PmbMovementController.Type.LOCOMOTION, PmbMovementController.Tier.RETREAT,
-					PmbSkillScheduler.Category.MAIN, 0,
-					() -> mob.isAlive() && !mob.isNoAi() && state.pmb$getFactionAvoidTarget() == avoid
-							&& avoid.isAlive() && avoid.level() == mob.level()
-							&& mob.distanceToSqr(avoid) <= Math.pow(mob.getAttributeValue(Attributes.FOLLOW_RANGE), 2),
-					() -> {
-						if (!navigationMovesAway(mob, avoid))
-							navigateAway(mob, avoid, definition.rules().evasiveSpeedMultiplier());
-					});
+			PmbSkillScheduler.of(mob).pathfinding().submitRetreat(mob, avoid);
 			return;
 		}
 
-		PmbSkillScheduler.of(mob).movement().cancel("faction_retreat");
 		if (state.pmb$wasFactionAvoiding() && !afterVanillaAi) {
 			mob.getBrain().eraseMemory(MemoryModuleType.AVOID_TARGET);
-			mob.getNavigation().stop();
 			state.pmb$setFactionAvoiding(false);
 		}
 		if (mob instanceof Piglin && !definition.vanillaCompatRules().piglin().avoidance()
@@ -406,6 +575,7 @@ public final class PmbFactionAi {
 			if (getRegisteredMemory(mob.getBrain(), MemoryModuleType.ATTACK_TARGET) != combat) {
 				mob.getBrain().setMemory(MemoryModuleType.ATTACK_TARGET, combat);
 			}
+			if (mob instanceof Piglin) state.pmb$setLastBrainCombatTarget(combat);
 			return;
 		}
 
@@ -421,7 +591,7 @@ public final class PmbFactionAi {
 
 	private static boolean mayRetainVanillaTarget(Mob mob, LivingEntity target, PmbFactionMobState state,
 			PmbFactionSavedData data) {
-		if (!isCombatTargetable(target)) {
+		if (!isCombatTargetable(target) || isSuppressedPiglinTarget(mob, target)) {
 			return false;
 		}
 		PmbFactionAttitude attitude = PmbFactionResolver.attitude(data, mob, target);
@@ -453,6 +623,18 @@ public final class PmbFactionAi {
 		return definition == null ? PmbPiglinCompatRules.DEFAULT : definition.vanillaCompatRules().piglin();
 	}
 
+	private static boolean hasValidFaction(AbstractPiglin piglin) {
+		if (!(piglin.level() instanceof ServerLevel level)) return false;
+		String id = PmbFactionResolver.factionOf(piglin);
+		return id != null && PmbFactionSavedData.get(level.getServer()).get(id) != null;
+	}
+
+	private static boolean defersCombatForAdmiration(Mob mob) {
+		return mob instanceof Piglin piglin && hasValidFaction(piglin)
+				&& piglinCompatRules(piglin).greed()
+				&& piglin.getBrain().hasMemoryValue(MemoryModuleType.ADMIRING_ITEM);
+	}
+
 	private static boolean preservesPiglinAvoidanceAgainst(Mob mob, LivingEntity target) {
 		if (!(mob instanceof Piglin piglin) || target == null || !piglinCompatRules(piglin).avoidance()) {
 			return false;
@@ -464,57 +646,6 @@ public final class PmbFactionAi {
 	private static <T> T getRegisteredMemory(Brain<?> brain, MemoryModuleType<T> type) {
 		return brain.checkMemory(type, MemoryStatus.REGISTERED)
 				? brain.getMemory(type).orElse(null) : null;
-	}
-
-	private static void navigateAway(Mob mob, LivingEntity threat, float speedMultiplier) {
-		Vec3 away = mob.position().subtract(threat.position());
-		if (away.lengthSqr() < 1.0E-6D) {
-			double angle = Math.toRadians(Math.floorMod(mob.getId() * 137, 360));
-			away = new Vec3(Math.cos(angle), 0.0D, Math.sin(angle));
-		}
-		away = away.normalize();
-
-		if (mob instanceof PathfinderMob pathfinderMob) {
-			Vec3 reachable = DefaultRandomPos.getPosAway(pathfinderMob, 16, 7, threat.position());
-			if (reachable != null && isFartherFromThreat(mob, threat, reachable)
-					&& mob.getNavigation().moveTo(reachable.x, reachable.y, reachable.z,
-					speedMultiplier)) {
-				return;
-			}
-		}
-
-		double[] turns = {0.0D, Math.PI / 4.0D, -Math.PI / 4.0D, Math.PI / 2.0D, -Math.PI / 2.0D};
-		for (double turn : turns) {
-			double cos = Math.cos(turn);
-			double sin = Math.sin(turn);
-			double x = away.x * cos - away.z * sin;
-			double z = away.x * sin + away.z * cos;
-			Vec3 destination = mob.position().add(x * 10.0D, 0.0D, z * 10.0D);
-			if (mob.getNavigation().moveTo(destination.x, destination.y, destination.z, speedMultiplier)) {
-				return;
-			}
-		}
-
-		if (mob.getNavigation() instanceof FlyingPathNavigation
-				|| mob.getNavigation() instanceof WaterBoundPathNavigation) {
-			Vec3 destination = mob.position().add(away.scale(10.0D));
-			mob.getMoveControl().setWantedPosition(destination.x, destination.y, destination.z, speedMultiplier);
-		} else {
-			mob.getNavigation().stop();
-		}
-	}
-
-	private static boolean navigationMovesAway(Mob mob, LivingEntity threat) {
-		BlockPos targetPos = mob.getNavigation().getTargetPos();
-		if (targetPos == null || mob.getNavigation().isDone()) {
-			return false;
-		}
-		Vec3 destination = Vec3.atCenterOf(targetPos);
-		return isFartherFromThreat(mob, threat, destination);
-	}
-
-	private static boolean isFartherFromThreat(Mob mob, LivingEntity threat, Vec3 destination) {
-		return destination.distanceToSqr(threat.position()) > mob.distanceToSqr(threat) + 4.0D;
 	}
 
 	private static boolean isInRange(Mob source, LivingEntity target, double range) {
@@ -532,5 +663,68 @@ public final class PmbFactionAi {
 		state.pmb$setFactionAvoidTarget(null);
 		state.pmb$setFactionAvoiding(false);
 		state.pmb$setFactionGroupRevenge(false);
+		state.pmb$setFactionAdmiring(false);
+		state.pmb$setLastBrainCombatTarget(null);
+		state.pmb$setSuppressedTarget(null);
+		state.pmb$setSuppressedPosition(null);
+	}
+
+	private static void observePiglinUnreachable(Piglin piglin, PmbFactionDefinition definition) {
+		if (piglin.getBrain().hasMemoryValue(MemoryModuleType.ADMIRING_ITEM)
+				|| ((PmbFactionMobState) piglin).pmb$wasFactionAdmiring()) return;
+		if (!definition.vanillaCompatRules().piglin().unreachableGiveUp()) return;
+		PmbFactionMobState state = (PmbFactionMobState) piglin;
+		LivingEntity previous = state.pmb$getLastBrainCombatTarget();
+		if (previous == null || state.pmb$getFactionCombatTarget() != previous
+				|| getRegisteredMemory(piglin.getBrain(), MemoryModuleType.ATTACK_TARGET) != null) return;
+		Long since = getRegisteredMemory(piglin.getBrain(), MemoryModuleType.CANT_REACH_WALK_TARGET_SINCE);
+		if (since == null || piglin.level().getGameTime() - since <= 200 || canActuallyShoot(piglin, previous)) return;
+		state.pmb$setSuppressedTarget(previous);
+		state.pmb$setSuppressedPosition(previous.position());
+		state.pmb$setSuppressedUntil(piglin.level().getGameTime() + 60);
+		PmbBrainAiDebug.event(piglin, "PMB_unreachable_give_up", () ->
+				"target=" + previous.getId() + " cantReachAge=" + (piglin.level().getGameTime() - since)
+						+ " suppressTicks=60");
+		state.pmb$setFactionCombatTarget(null);
+		state.pmb$setFactionGroupRevenge(false);
+		state.pmb$setLastBrainCombatTarget(null);
+		if (piglin.getTarget() == previous) piglin.setTarget(null);
+	}
+
+	private static boolean canActuallyShoot(Piglin piglin, LivingEntity target) {
+		if (piglin.getMainHandItem().is(net.minecraft.world.item.Items.CROSSBOW)
+				&& piglin.distanceToSqr(target) <= 16.0D * 16.0D
+				&& piglin.getSensing().hasLineOfSight(target)) return true;
+		var bow = ((PmbAiHolder) piglin).pmb$getAiData().bow();
+		return bow.isEnabled() && (piglin.getMainHandItem().is(net.minecraft.world.item.Items.BOW)
+				|| piglin.getOffhandItem().is(net.minecraft.world.item.Items.BOW))
+				&& (!bow.doConsume() || PmbAmmoAccess.find(piglin, bow.ammoSource(),
+						((net.minecraft.world.item.BowItem) net.minecraft.world.item.Items.BOW)
+								.getAllSupportedProjectiles()) != null)
+				&& bow.canShootAtDistance(piglin.distanceTo(target))
+				&& (!bow.requireEyeSight() || piglin.getSensing().hasLineOfSight(target));
+	}
+
+	private static boolean isSuppressedPiglinTarget(Mob mob, LivingEntity target) {
+		if (!(mob instanceof Piglin piglin) || target == null) return false;
+		PmbFactionMobState state = (PmbFactionMobState) mob;
+		if (state.pmb$getSuppressedTarget() != target) return false;
+		if (!piglinCompatRules(piglin).unreachableGiveUp()
+				|| mob.level().getGameTime() >= state.pmb$getSuppressedUntil()
+				|| state.pmb$getSuppressedPosition() == null
+				|| state.pmb$getSuppressedPosition().distanceToSqr(target.position()) > 16.0D
+				|| canActuallyShoot(piglin, target)) {
+			state.pmb$setSuppressedTarget(null);
+			state.pmb$setSuppressedPosition(null);
+			return false;
+		}
+		return true;
+	}
+
+	private static void clearSuppressionOnFreshAttack(Mob mob, LivingEntity attacker) {
+		if (mob instanceof Piglin && attacker != null) {
+			PmbFactionMobState state = (PmbFactionMobState) mob;
+			if (state.pmb$getSuppressedTarget() == attacker) state.pmb$setSuppressedTarget(null);
+		}
 	}
 }

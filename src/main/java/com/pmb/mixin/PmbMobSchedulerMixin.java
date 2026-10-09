@@ -2,6 +2,7 @@ package com.pmb.mixin;
 
 import com.pmb.ai.PmbSchedulerHolder;
 import com.pmb.ai.PmbSkillScheduler;
+import com.pmb.faction.PmbBrainAiDebug;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.damagesource.DamageSource;
@@ -21,7 +22,10 @@ public class PmbMobSchedulerMixin implements PmbSchedulerHolder {
 	@Inject(method = "tick", at = @At("TAIL"))
 	private void pmb$tickAllSkills(CallbackInfo info) {
 		Mob mob = (Mob) (Object) this;
-		if (!mob.level().isClientSide()) pmb$scheduler.tick(mob);
+		if (!mob.level().isClientSide()) {
+			pmb$scheduler.tick(mob);
+			PmbBrainAiDebug.tick(mob);
+		}
 	}
 	@Inject(method = "serverAiStep", at = @At(value = "INVOKE",
 			target = "Lnet/minecraft/world/entity/ai/control/MoveControl;tick()V"))

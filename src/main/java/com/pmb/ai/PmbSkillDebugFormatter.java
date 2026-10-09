@@ -11,6 +11,8 @@ import net.minecraft.network.chat.MutableComponent;
 /** Stateless presentation for server-log and localized chat copies of a skill snapshot. */
 public final class PmbSkillDebugFormatter {
 	private static final String PREFIX = "debug.portable-mob-behaviour.";
+	private static final java.util.Set<String> CONDITIONAL_SKILLS = java.util.Set.of(
+			"mace", "traversal", "fall_rescue");
 
 	private PmbSkillDebugFormatter() {}
 
@@ -36,7 +38,9 @@ public final class PmbSkillDebugFormatter {
 				.append(" authorityTarget=").append(snapshot.authorityTarget())
 				.append("\n  itemUse={using=").append(snapshot.usingItem())
 				.append(",hand=").append(snapshot.usedItemHand()).append('}')
-				.append("\n  movement=").append(snapshot.movement());
+				.append("\n  movement=").append(snapshot.movement())
+				.append("\n  pathfinding=").append(snapshot.pathfinding())
+				.append("\n  airTracking=").append(snapshot.airTracking());
 		return out.toString();
 	}
 
@@ -62,13 +66,10 @@ public final class PmbSkillDebugFormatter {
 			line(out, heading("skills").append(Component.literal(": []").withStyle(ChatFormatting.GRAY)));
 		} else {
 			line(out, heading("skills").append(Component.literal(":")));
-			for (var skill : enabled) {
-				MutableComponent state = tr(skill.activeThisTick() ? "skill.active" : "skill.ready")
-						.withStyle(skill.activeThisTick() ? ChatFormatting.GREEN : ChatFormatting.YELLOW);
-				line(out, Component.literal("  " + skill.id() + " [").withStyle(ChatFormatting.WHITE)
-						.append(state).append(Component.literal("] cooldown{" + skill.cooldown()
-								+ "} state{" + skill.state() + '}').withStyle(ChatFormatting.GRAY)));
-			}
+			appendSkillGroupForChat(out, "ACTIVE", enabled.stream()
+					.filter(skill -> !CONDITIONAL_SKILLS.contains(skill.id())).toList());
+			appendSkillGroupForChat(out, "CONDITIONAL", enabled.stream()
+					.filter(skill -> CONDITIONAL_SKILLS.contains(skill.id())).toList());
 		}
 
 		if (snapshot.attempts().isEmpty()) {
@@ -103,7 +104,22 @@ public final class PmbSkillDebugFormatter {
 		line(out, Component.literal("  itemUse={using=" + snapshot.usingItem() + ",hand="
 				+ snapshot.usedItemHand() + '}').withStyle(ChatFormatting.GRAY));
 		line(out, Component.literal("  movement=" + snapshot.movement()).withStyle(ChatFormatting.GRAY));
+		line(out, Component.literal("  pathfinding=" + snapshot.pathfinding()).withStyle(ChatFormatting.GRAY));
+		line(out, Component.literal("  airTracking=" + snapshot.airTracking()).withStyle(ChatFormatting.GRAY));
 		return out;
+	}
+
+	private static void appendSkillGroupForChat(MutableComponent out, String group,
+			List<PmbSkillDebugSnapshot.SkillState> skills) {
+		line(out, Component.literal("  " + group + (skills.isEmpty() ? ": []" : ":"))
+				.withStyle(skills.isEmpty() ? ChatFormatting.GRAY : ChatFormatting.AQUA));
+		for (var skill : skills) {
+				MutableComponent state = tr(skill.activeThisTick() ? "skill.active" : "skill.ready")
+						.withStyle(skill.activeThisTick() ? ChatFormatting.GREEN : ChatFormatting.YELLOW);
+			line(out, Component.literal("    " + skill.id() + " [").withStyle(ChatFormatting.WHITE)
+						.append(state).append(Component.literal("] cooldown{" + skill.cooldown()
+								+ "} state{" + skill.state() + '}').withStyle(ChatFormatting.GRAY)));
+		}
 	}
 
 	public static String formatUnavailableForLog(String entityType, int entityId, Object uuid) {
@@ -128,7 +144,17 @@ public final class PmbSkillDebugFormatter {
 			return;
 		}
 		out.append("\nSKILLS:");
-		for (var skill : enabled) out.append("\n  ").append(skill.id()).append(" [")
+		appendSkillGroupForLog(out, "ACTIVE", enabled.stream()
+				.filter(skill -> !CONDITIONAL_SKILLS.contains(skill.id())).toList());
+		appendSkillGroupForLog(out, "CONDITIONAL", enabled.stream()
+				.filter(skill -> CONDITIONAL_SKILLS.contains(skill.id())).toList());
+	}
+
+	private static void appendSkillGroupForLog(StringBuilder out, String group,
+			List<PmbSkillDebugSnapshot.SkillState> skills) {
+		out.append("\n  ").append(group).append(':');
+		if (skills.isEmpty()) { out.append(" []"); return; }
+		for (var skill : skills) out.append("\n    ").append(skill.id()).append(" [")
 				.append(skill.activeThisTick() ? "ACTIVE" : "READY").append("] cooldown{")
 				.append(skill.cooldown()).append("} state{").append(skill.state()).append('}');
 	}

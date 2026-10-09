@@ -25,5 +25,8 @@
   "debug.portable-mob-behaviour.phases": "活动阶段",
   "debug.portable-mob-behaviour.preemption": "最近抢占",
   "debug.portable-mob-behaviour.source.default": "默认",
-  "debug.portable-mob-behaviour.source.override": "覆盖"
+  "debug.portable-mob-behaviour.source.override": "覆盖",
+  "debug.portable-mob-behaviour.observation.added": "已加入PMB观测：实体 %s",
+  "debug.portable-mob-behaviour.observation.removed": "已移除PMB观测：实体 %s",
+  "debug.portable-mob-behaviour.observation.full": "PMB观测列表已满（最多4只）；请先对一只已观测怪物按K移除"
 }

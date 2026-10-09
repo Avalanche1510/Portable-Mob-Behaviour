@@ -17,7 +17,7 @@ public record PmbSkillDebugSnapshot(int entityId, UUID entityUuid, String entity
 		PmbMovementController.DebugSnapshot movement, boolean ordinaryMeleeSuppressed,
 		List<String> meleeSuppressionReasons, boolean usingItem, String usedItemHand,
 		List<List<String>> priorityTiers, boolean priorityOverride, List<String> activePhases,
-		String lastPreemption) {
+		String lastPreemption, PmbPathfindingController.DebugState pathfinding, String airTracking) {
 	public PmbSkillDebugSnapshot {
 		skills = List.copyOf(skills);
 		attempts = List.copyOf(attempts);
@@ -36,7 +36,7 @@ public record PmbSkillDebugSnapshot(int entityId, UUID entityUuid, String entity
 			List<String> meleeSuppressionReasons, boolean usingItem, String usedItemHand) {
 		this(entityId, entityUuid, entityType, tick, strategy, authorityTarget, skills, attempts, sustainedClaims,
 				allClaims, bindings, movement, ordinaryMeleeSuppressed, meleeSuppressionReasons, usingItem, usedItemHand,
-				List.of(), false, List.of(), null);
+				List.of(), false, List.of(), null, null, "inactive");
 	}
 	public enum AttemptStatus { PRECLAIM_REJECTED, RESOURCE_BLOCKED, ADMITTED, FINAL_REJECTED,
 		COMMIT_FAILED, COMMIT_FAILED_AFTER_PREEMPT, EXECUTED }
@@ -92,16 +92,21 @@ public record PmbSkillDebugSnapshot(int entityId, UUID entityUuid, String entity
 						active("wind", sustained, executed),
 						"throw=" + ai.windCharge().throwCooldownRemaining() + ",bounce=" + ai.windCharge().bounceCooldownRemaining(),
 						"-"),
-				new SkillState("air_tracking", ai.airTracking().isConfigured(), ai.airTracking().isEnabled(),
-						active("air_tracking", sustained, executed), "-",
-						"source=" + air.source() + ",tracking=" + airState + ",lastClearReason=" + air.clearReason()),
 				new SkillState("mace", ai.mace().isConfigured(), ai.mace().isEnabled(),
 						active("mace", sustained, executed), "smash=" + ai.mace().cooldownRemaining(), "-"),
 				new SkillState("bow", ai.bow().isConfigured(), ai.bow().isEnabled(),
 						active("bow", sustained, executed),
 						"line=" + ai.bow().lineCooldownRemaining() + ",arc=" + ai.bow().arcCooldownRemaining(), "-"),
 				new SkillState("ender_pearl", ai.enderPearl().isConfigured(), ai.enderPearl().isEnabled(),
-						active("pearl", sustained, executed), "throw=" + ai.enderPearl().cooldownRemaining(), "-"));
+						active("pearl", sustained, executed), "throw=" + ai.enderPearl().cooldownRemaining(), "-"),
+				new SkillState("traversal", ai.traversal().isConfigured(), ai.traversal().isEnabled(),
+						active("traversal", sustained, executed),
+						"wind=" + ai.windTraversal().cooldownRemaining() + ",pearl=" + ai.pearlTraversal().cooldownRemaining(),
+						"methods=" + ai.traversal().methods() + ",windEnabled=" + ai.windTraversal().isEnabled()
+								+ ",pearlEnabled=" + ai.pearlTraversal().isEnabled()),
+				new SkillState("fall_rescue", ai.fallRescue().isConfigured(), ai.fallRescue().isEnabled(),
+						active("fall_rescue", sustained, executed), "wind=" + ai.fallRescue().windCooldownRemaining()
+						+ ",pearl=" + ai.fallRescue().pearlCooldownRemaining(), scheduler.rescueDebugState()));
 		Map<String, String> bindingCopies = new java.util.TreeMap<>();
 		bindings.forEach((key, value) -> bindingCopies.put(key, value.debugSummary()));
 		List<String> suppression = new ArrayList<>();
@@ -119,7 +124,9 @@ public record PmbSkillDebugSnapshot(int entityId, UUID entityUuid, String entity
 				Map.copyOf(bindingCopies), movement, !suppression.isEmpty(), List.copyOf(suppression),
 				mob.isUsingItem(), mob.isUsingItem() ? mob.getUsedItemHand().toString() : "-",
 				scheduler.priorities().effective(scheduler.strategy()),
-				scheduler.priorities().hasOverride(scheduler.strategy()), phases, scheduler.lastPreemption());
+				scheduler.priorities().hasOverride(scheduler.strategy()), phases, scheduler.lastPreemption(),
+				scheduler.pathfinding().debug(), "source=" + air.source() + ",tracking=" + airState
+						+ ",lastClearReason=" + air.clearReason());
 	}
 
 	private static boolean active(String owner, Map<PmbSkillScheduler.Resource, String> sustained,

@@ -1,6 +1,7 @@
 package com.pmb.mixin;
 
 import com.pmb.faction.PmbFactionAi;
+import com.pmb.faction.PmbBrainAiDebug;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.monster.piglin.AbstractPiglin;
@@ -16,6 +17,31 @@ import java.util.Optional;
 
 @Mixin(PiglinBruteAi.class)
 public class PmbPiglinBruteAiFactionMixin {
+	@Inject(method = "updateActivity", at = @At("HEAD"))
+	private static void pmb$coordinateIntent(PiglinBrute brute, CallbackInfo info) {
+		PmbFactionAi.prepareBrainActivityUpdate(brute);
+	}
+	@Inject(method = "updateActivity", at = @At("TAIL"))
+	private static void pmb$debugActivity(PiglinBrute brute, CallbackInfo info) {
+		PmbBrainAiDebug.event(brute, "vanilla_update_activity", () -> "activity="
+				+ brute.getBrain().getActiveNonCoreActivity().orElse(null));
+	}
+
+	@Inject(method = "wasHurtBy", at = @At("TAIL"))
+	private static void pmb$debugHurt(ServerLevel level, PiglinBrute brute, LivingEntity attacker, CallbackInfo info) {
+		PmbBrainAiDebug.event(brute, "vanilla_was_hurt_by", () -> "attacker=" + attacker.getId());
+	}
+
+	@Inject(method = "setAngerTarget", at = @At("TAIL"))
+	private static void pmb$debugAnger(PiglinBrute brute, LivingEntity attacker, CallbackInfo info) {
+		PmbBrainAiDebug.event(brute, "vanilla_set_anger_target", () -> "target=" + attacker.getId());
+	}
+
+	@Inject(method = "playActivitySound", at = @At("TAIL"))
+	private static void pmb$debugActivitySound(PiglinBrute brute, CallbackInfo info) {
+		PmbBrainAiDebug.event(brute, "vanilla_activity_sound", () -> "activity="
+				+ brute.getBrain().getActiveNonCoreActivity().orElse(null));
+	}
 	@Inject(method = "wasHurtBy", at = @At("HEAD"), cancellable = true)
 	private static void pmb$ignoreNonSurvivalRetaliation(ServerLevel level, PiglinBrute piglin,
 			LivingEntity attacker, CallbackInfo info) {

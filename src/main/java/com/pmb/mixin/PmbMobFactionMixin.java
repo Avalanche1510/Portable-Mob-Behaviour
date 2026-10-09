@@ -1,6 +1,7 @@
 package com.pmb.mixin;
 
 import com.pmb.faction.PmbFactionAi;
+import com.pmb.faction.PmbBrainAiDebug;
 import com.pmb.faction.PmbFactionMobState;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.LivingEntity;
@@ -25,6 +26,21 @@ public class PmbMobFactionMixin implements PmbFactionMobState {
 	private boolean pmb$factionAvoiding;
 	@Unique
 	private boolean pmb$factionGroupRevenge;
+	@Unique private boolean pmb$factionAdmiring;
+	@Override public boolean pmb$wasFactionAdmiring() { return pmb$factionAdmiring; }
+	@Override public void pmb$setFactionAdmiring(boolean admiring) { pmb$factionAdmiring = admiring; }
+	@Unique private LivingEntity pmb$lastBrainCombatTarget;
+	@Unique private LivingEntity pmb$suppressedTarget;
+	@Unique private long pmb$suppressedUntil;
+	@Unique private net.minecraft.world.phys.Vec3 pmb$suppressedPosition;
+	@Override public LivingEntity pmb$getLastBrainCombatTarget() { return pmb$lastBrainCombatTarget; }
+	@Override public void pmb$setLastBrainCombatTarget(LivingEntity target) { pmb$lastBrainCombatTarget = target; }
+	@Override public LivingEntity pmb$getSuppressedTarget() { return pmb$suppressedTarget; }
+	@Override public void pmb$setSuppressedTarget(LivingEntity target) { pmb$suppressedTarget = target; }
+	@Override public long pmb$getSuppressedUntil() { return pmb$suppressedUntil; }
+	@Override public void pmb$setSuppressedUntil(long tick) { pmb$suppressedUntil = tick; }
+	@Override public net.minecraft.world.phys.Vec3 pmb$getSuppressedPosition() { return pmb$suppressedPosition; }
+	@Override public void pmb$setSuppressedPosition(net.minecraft.world.phys.Vec3 position) { pmb$suppressedPosition = position; }
 
 	@Override
 	public LivingEntity pmb$getFactionCombatTarget() {
@@ -33,6 +49,12 @@ public class PmbMobFactionMixin implements PmbFactionMobState {
 
 	@Override
 	public void pmb$setFactionCombatTarget(LivingEntity target) {
+		if (pmb$factionCombatTarget != target) {
+			LivingEntity old = pmb$factionCombatTarget;
+			PmbBrainAiDebug.event((Mob) (Object) this, "PMB_faction_combat_target", () ->
+					"old=" + (old == null ? "null" : old.getId()) + " new="
+							+ (target == null ? "null" : target.getId()));
+		}
 		pmb$factionCombatTarget = target;
 	}
 
@@ -43,6 +65,12 @@ public class PmbMobFactionMixin implements PmbFactionMobState {
 
 	@Override
 	public void pmb$setFactionAvoidTarget(LivingEntity target) {
+		if (pmb$factionAvoidTarget != target) {
+			LivingEntity old = pmb$factionAvoidTarget;
+			PmbBrainAiDebug.event((Mob) (Object) this, "PMB_faction_avoid_target", () ->
+					"old=" + (old == null ? "null" : old.getId()) + " new="
+							+ (target == null ? "null" : target.getId()));
+		}
 		pmb$factionAvoidTarget = target;
 	}
 

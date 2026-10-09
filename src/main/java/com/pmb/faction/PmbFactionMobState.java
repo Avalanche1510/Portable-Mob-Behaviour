@@ -22,4 +22,16 @@ public interface PmbFactionMobState {
 	boolean pmb$isFactionGroupRevenge();
 
 	void pmb$setFactionGroupRevenge(boolean groupRevenge);
+
+	boolean pmb$wasFactionAdmiring();
+	void pmb$setFactionAdmiring(boolean admiring);
+
+	LivingEntity pmb$getLastBrainCombatTarget();
+	void pmb$setLastBrainCombatTarget(LivingEntity target);
+	LivingEntity pmb$getSuppressedTarget();
+	void pmb$setSuppressedTarget(LivingEntity target);
+	long pmb$getSuppressedUntil();
+	void pmb$setSuppressedUntil(long tick);
+	net.minecraft.world.phys.Vec3 pmb$getSuppressedPosition();
+	void pmb$setSuppressedPosition(net.minecraft.world.phys.Vec3 position);
 }

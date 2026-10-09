@@ -25,5 +25,8 @@
   "debug.portable-mob-behaviour.phases": "ACTIVE PHASES",
   "debug.portable-mob-behaviour.preemption": "LAST PREEMPTION",
   "debug.portable-mob-behaviour.source.default": "default",
-  "debug.portable-mob-behaviour.source.override": "override"
+  "debug.portable-mob-behaviour.source.override": "override",
+  "debug.portable-mob-behaviour.observation.added": "PMB observation added: entity %s",
+  "debug.portable-mob-behaviour.observation.removed": "PMB observation removed: entity %s",
+  "debug.portable-mob-behaviour.observation.full": "PMB observation list full (maximum 4); remove one with K first"
 }

@@ -22,12 +22,20 @@ ender_pearl技能允许持有末影珍珠的生物在自定义最小至最大距
 
 PmbFaction是服务端持久实体NBT，可直接写入summon数据，例如`/summon minecraft:vindicator ~ ~ ~ {PmbFaction:{FactionName:"灾厄庭"}}`；派系必须预先存在。
 
-当前提供六项独立技能：`shield`、`wind_charge`、`ender_pearl`、`mace`、`bow`与`air_tracking`。完整技能、额外库存、派系和调度器配置请阅读下方文档；`air_tracking`以有序来源列表统一风弹弹射与自然下落的空中追踪。
+`26.10.4-1`将AI分成动作技能与独立寻路层：`skill.active`包含弓、战斗风弹、战斗珍珠和盾；`skill.conditional`包含重锤、特殊跨越和坠落自救，后两者分别在父场景下配置风弹与珍珠方法。`pathfinding`统一管理路线、战术移动、撤退与空中追踪。动作技能共用策略优先级，寻路不再作为会锁死其他动作的资源。
 
-迁移注意：旧`wind_charge.inAirTrackStrength`与`wind_charge.inAirTrackDurationTicks`已移除，须改写到`air_tracking`；使用第28–256格库存的数据降级到旧版时会丢失这些高位物品。
+本次继续修正风弹局部跨越：两格墙／沟、栏杆及水／蛛网路线按真实可通行性和代价评估；关闭的跨越功能不触发额外路径搜索。成功重锤命中会清零累计坠落距离。实际跨越与地狱高密度实体性能仍需实机验证。
+
+Faction新增猪灵不可达目标暂缓重选、金物欣赏期间暂停主动技能，以及受击欣赏策略。`VanillaCompatRules.brainAiDebug`可让派系猪灵、蛮兵、疣猪兽逐刻向服务端终端输出AI状态；默认关闭，开启时日志量很大。
+
+派系猪灵系现在通过统一意图边界协调原版Brain与PMB：普通猪灵欣赏金物时暂缓战斗目标与弩攻击，结束后重新校验目标；猪灵蛮兵和疣猪兽保留原版具体行为。`hurtAdmirationDisableTicks`统一受击欣赏禁用时长，默认400刻，设为0则不打断欣赏。
+
+迁移注意：`26.10.4-1`不会读取旧扁平`PmbAi`、旧`skillPriorities`、技能形式的`air_tracking`及平铺的`wind_traversal`/`pearl_traversal`。请先备份世界并转换summon与数据包。使用第28–256格库存的数据降级到旧版时仍会丢失这些高位物品。
 
 <details>
 <summary>近期版本概览</summary>
+
+`26.10.4-1`破坏性重构为`PmbAi.skill.{active,conditional,priorities}`与`PmbAi.pathfinding`。`conditional.traversal`与`conditional.fall_rescue`各有父层总开关、可调方法顺序及独立风弹/珍珠方法，指令使用`traversal.wind_charge`等点号ID。新增局部跨越、坠落自救、寻路策略和珍珠传送伤害开关；空中追踪改为成功动作提交的运行时上下文；Faction逃跑移动移入pathfinding。风弹跨越新增默认0格的最小水平连接距离、有限侧向落点和柱顶空中接敌；启用的坠落自救在入水时取消。特殊路线按服务端公平预算跨刻检查，但当前只建立到当前目标的保守局部连接，不是任意地形全局路线图。指令改为`/pmb skill ...`与`/pmb pathfinding ...`，旧`/pmb skills`不再存在。实机路线与释放时机仍需测试。
 
 `26.9.19-1`修复`air_tracking`的风弹锁存：成功弹射后会等待下一次空中刻，并始终追踪当刻捕获的目标，不再被之后原版/Faction重新索敌取消。重锤下落来源扩展到完整FOLLOW_RANGE（含`smashRange`以内）；K调试补充锁存、时长、目标、空中状态、优先级与可选LOOK诊断。
 
@@ -35,7 +43,7 @@ PmbFaction是服务端持久实体NBT，可直接写入summon数据，例如`/su
 
 `26.9.4-2`加入统一的PMB技能调度入口与生物额外物品栏。技能可通过`FetchSource`从主手、副手或指定库存区间取得物品；装备交换永久保留。启用原版`CanPickUpLoot`时，未被原版装备或物种专用逻辑取走的物品可以进入额外库存。bow和ender_pearl新增默认`1b`的`requireEyeSight`；设为`0b`时只跳过各自的视线检查。
 
-`26.9.8-1`加入模块化技能测试指令（当前语法为`/pmb skills skill <targets> <skill> <mode>`）。它提供参数名和值补全、严格类型和值域检查、原子批量写入，以及可跨保存区分的显式参数增删；无需再手写整段PmbAi SNBT。
+`26.9.8-1`曾加入模块化技能测试指令（当时语法为`/pmb skills skill <targets> <skill> <mode>`）。该旧入口已由`26.10.4-1`的`/pmb skill ...`替代。
 
 `26.9.8-2`新增`preferredHand`，支持`main`、`off`、`main-enforce`、`off-enforce`及指令补全。bow默认main，shield/wind_charge/ender_pearl默认off，mace固定主手。目标手已有正确物品时直接使用，否则按`FetchSource`永久换装。弓的`AmmoSource`独立控制箭矢来源，省略时双手优先再扫描PMB库存。动作结束不归还物品；移动意图独立裁决，不阻止其他技能激活。
 
@@ -55,12 +63,11 @@ PmbFaction是服务端持久实体NBT，可直接写入summon数据，例如`/su
 
 ## 资源指南：
 
-[模组文档](https://github.com/Avalanche1510/Portable-Mob-Behaviour/blob/26.1.1/Docs/模组文档.md)  
-[更新日志](https://github.com/Avalanche1510/Portable-Mob-Behaviour/blob/26.1.1/ChangeLog/更新日志.md)
+[模组文档](Docs/模组文档.md)
+[更新日志](ChangeLog/更新日志.md)
 
 该模组包含AI生成的代码。
 
-~~请在issues提醒我，如果我忘记了更新这个分支的链接！~~
 
 
 </details>
@@ -108,12 +115,20 @@ The ender_pearl skill lets a mob holding an ender pearl solve the required initi
 
 PmbFaction is persistent server-side entity NBT and can be supplied directly to summon, for example `/summon minecraft:vindicator ~ ~ ~ {PmbFaction:{FactionName:"IllagerCourt"}}`; the faction must already exist.
 
-The current release provides six independent skills: `shield`, `wind_charge`, `ender_pearl`, `mace`, `bow`, and `air_tracking`. See the linked documentation for complete skill, extra-inventory, Faction, and scheduler configuration. `air_tracking` uses an ordered source list to unify wind-bounce and natural-fall airborne tracking.
+`26.10.4-1` separates action skills from pathfinding. `skill.active` contains bow, combat wind charge, combat ender pearl, and shield; `skill.conditional` contains mace, special traversal, and fall rescue. Traversal and rescue each configure wind and pearl methods under one parent scene. `pathfinding` owns route policy, tactical movement, retreat, and airborne tracking. Actions share strategy priorities; navigation is no longer a resource that can lock unrelated actions.
 
-Migration notice: old `wind_charge.inAirTrackStrength` and `wind_charge.inAirTrackDurationTicks` were removed and must move to `air_tracking`; downgrading data that uses inventory slots 28–256 loses those high-slot items.
+This update also revises local wind traversal across two-block walls/gaps, fences, and slow water/cobweb routes using passability and estimated cost. Disabled traversal does not run extra path searches. Successful mace hits clear accumulated fall distance. Live traversal and crowded-Nether performance still need gameplay verification.
+
+Faction adds a temporary unreachable-target give-up for piglins, pauses active skills while they admire gold, and offers configurable hurt-admiration behavior. `VanillaCompatRules.brainAiDebug` can print per-tick server-terminal AI state for faction piglins, brutes, and hoglins; it is off by default and produces very large logs when enabled.
+
+Faction Brain mobs now share an intent boundary between PMB and vanilla behavior: an ordinary piglin admiring gold defers combat targets and crossbow attacks, then revalidates its pending target; brutes and hoglins retain their vanilla behavior execution. `hurtAdmirationDisableTicks` unifies the disable duration after damage, defaults to 400 ticks, and at 0 does not interrupt admiration.
+
+Migration notice: `26.10.4-1` does not read the old flat `PmbAi`, old `skillPriorities`, skill-form `air_tracking`, or flat `wind_traversal`/`pearl_traversal`. Back up worlds and convert summon/data-pack data first. Downgrading data that uses inventory slots 28–256 still loses those high-slot items.
 
 <details>
 <summary>Recent version overview</summary>
+
+`26.10.4-1` destructively reorganizes data as `PmbAi.skill.{active,conditional,priorities}` plus `PmbAi.pathfinding`. `conditional.traversal` and `conditional.fall_rescue` each have a parent switch, ordered methods, and independent wind/pearl settings. Commands use dotted IDs such as `traversal.wind_charge`. It adds local traversal, fall rescue, route policy, and optional pearl teleport damage; airborne tracking becomes a runtime context installed by committed actions, and Faction retreat movement moves into pathfinding. Wind traversal now has a zero-block default minimum horizontal span, bounded lateral landing probes, and pillar-top airborne contact; enabled fall rescue cancels on water contact. Special-route checks advance under a fair server budget, but currently build only a conservative local connection to the current objective rather than an arbitrary-terrain global route graph. Commands move to `/pmb skill ...` and `/pmb pathfinding ...`; `/pmb skills` is removed. Live route and release timing still require gameplay testing.
 
 `26.9.19-1` fixes the `air_tracking` wind latch: a successful bounce waits for the next airborne tick and continues to use its captured target instead of being cancelled by later vanilla/Faction retargeting. Falling-mace sourcing now covers full FOLLOW_RANGE including smash range; K debug adds latch, duration, target, airborne, priority, and optional-LOOK diagnostics.
 
@@ -121,7 +136,7 @@ Migration notice: old `wind_charge.inAirTrackStrength` and `wind_charge.inAirTra
 
 `26.9.4-2` adds one coordinated PMB skill tick and a mob-only extra inventory. A skill can use `FetchSource` to obtain its real item from either hand or selected inventory ranges; equipment exchanges retain their final layout. With vanilla `CanPickUpLoot` enabled, items left behind by vanilla equipment and species-specific pickup logic may enter this extra inventory. bow and ender_pearl add `requireEyeSight`, defaulting to `1b`; `0b` skips only that skill's line-of-sight check.
 
-`26.9.8-1` adds the modular skill testing command (current syntax: `/pmb skills skill <targets> <skill> <mode>`). It provides parameter-name and value completion, strict type and range validation, atomic bulk writes, and persistent explicit-field editing without hand-writing complete PmbAi SNBT.
+`26.9.8-1` introduced the modular test command (then `/pmb skills skill <targets> <skill> <mode>`). That old root is replaced by `/pmb skill ...` in `26.10.4-1`.
 
 `26.9.8-2` adds `preferredHand` with `main`, `off`, `main-enforce`, `off-enforce` and enum completion. Bow defaults to main, shield/wind_charge/ender_pearl to off; mace always uses mainhand. A suitable destination-hand item is used directly; otherwise `FetchSource` supplies a permanent exchange. Bow `AmmoSource` independently selects arrows, defaulting to hands then PMB inventory. Actions no longer restore equipment and movement intentions do not block skill activation.
 
@@ -141,11 +156,10 @@ Migration notice: old `wind_charge.inAirTrackStrength` and `wind_charge.inAirTra
 
 ## Resource Guide:
 
-[Documentation](https://github.com/Avalanche1510/Portable-Mob-Behaviour/blob/26.1.1/Docs/docs.md)  
-[Change Log](https://github.com/Avalanche1510/Portable-Mob-Behaviour/blob/26.1.1/ChangeLog/changelog.md)
+[Documentation](Docs/docs.md)
+[Change Log](ChangeLog/changelog.md)
 
 This mod includes AI-generated code.
 
-~~plz remind me in issues if I forget to update the links in each branch !~~
 
 </details>

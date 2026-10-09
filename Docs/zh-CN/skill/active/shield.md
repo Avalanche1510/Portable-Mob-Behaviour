@@ -1,0 +1,236 @@
+# 盾牌 (`skill.active.shield`)
+
+完整默认配置（可选来源列表的省略语义见下文）：
+
+```text
+shield:{FetchSource:["offhand"],preferredHand:"off",enable:0b,range:8.0f,shieldChance:0.35f,minUseTicks:80,maxUseTicks:160,cooldownTicks:40,randomCooldownBias:20,blockingAngle:30.0f,axeDisableCooldownTicks:100,shieldToughness:1,critToughnessDamage:1,disableVulnerTicks:40,vulnerDamageMultiplier:2.0f,disableKBMultiplier:1.2f,speedReduction:0.5f}
+```
+
+目前实现了基础的盾牌使用。
+符合条件的生物会循环检查是否可以举盾，检查结果受可配置的概率影响。
+
+<details>
+<summary>触发、格挡与破盾细节</summary>
+
+举盾触发条件:
+
+1. 实体属于生物，并且preferredHand目标手已有原版盾牌，或可从FetchSource永久换入。
+2. 启用(enable)为真。
+3. 存在一个进入举盾范围(range)，存活且在视线内的敌对目标。
+4. 不处于举盾冷却时间(cooldownTicks)。
+5. 不处于破盾攻击造成的强制禁用时间(axeDisableCooldownTicks)。
+6. 概率举盾检查(shieldChance)成功。
+7. 生物没有启用NoAI。
+
+由本模组控制的盾牌从举盾首个游戏刻起即可格挡，不使用原版玩家盾牌的初始生效延迟。
+
+由本模组控制的盾牌会在可用时优先根据攻击者实体位置计算格挡角度，而不是只依赖原始伤害来源位置。这可以避免贴脸攻击或交互距离延长时，伤害来源位置越过防御者导致角度翻面，并表现为穿盾。
+
+如果服务端仍认为生物正在使用盾牌，即使内部举盾计数刚刚归零，本模组也会在最终过渡游戏刻继续识别实际使用手。ActionBinding校验实际使用手的物品，并接受盾牌耐久变化或破碎的授权更新。动作结束释放绑定，保留最终装备布局。
+
+举盾后，盾牌会在成功格挡攻击时正常损失耐久。
+
+能够禁用盾牌的攻击每次会消耗一点盾牌韧性；当前一轮受到的此类攻击次数达到配置值时，本次举盾才会中止并触发强制禁用时间。
+
+计数会在普通冷却自然结束时刷新，在强制禁用结束、开始新一轮前刷新，并会在本次举盾未真正破盾但被中断时立即刷新。
+
+盾牌反作用力、耐久损耗和盾牌韧性消耗在每个普通伤害间隔内最多触发一次。被实体伤害冷却忽略的额外攻击不会积累这些效果。
+
+被盾牌完全格挡的攻击不会产生原版暴击粒子，但本模组会在玩家攻击蓄力重置前记录其是否满足原版暴击条件。
+
+可破盾暴击会消耗critToughnessDamage点盾牌韧性；若盾牌尚未被破坏，可破盾暴击会播放僵尸敲击木门的音效并产生10个橡木门碎屑粒子，普通可破盾攻击产生6个粒子，其他任何被格挡的攻击产生3个粒子。
+真正破盾时则播放僵尸摧毁木门的音效，产生24个粒子，并施加由disableKBMultiplier控制的额外破盾击退。
+
+真正破盾后，生物会进入disableVulnerTicks游戏刻的破盾虚弱。
+
+破盾虚弱期间，生物无法攻击，会持续清空目标和导航，并压制AI移动输入，但保留击退或其他外力造成的已有速度，同时显示类似僵尸村民被治愈或猪灵僵尸化时的抖动效果。
+
+此机制不会启用NoAI，因此重力等正常物理效果仍然生效。此期间受到的伤害会乘以vulnerDamageMultiplier。若disableVulnerTicks为0，则跳过破盾虚弱。
+
+为了避免与Guard Villagers模组冲突，命名空间为guardvillagers的实体不会使用本模组的盾牌行为。
+
+</details>
+
+<details>
+<summary>参数结构</summary>
+
+```text
+shield:
+    {
+        enable: <bool>,
+        FetchSource: [<string>, ...],
+        preferredHand: <string>,
+        range: <float>,
+        shieldChance: <float>,
+        minUseTicks: <int>,
+        maxUseTicks: <int>,
+        cooldownTicks: <int>,
+        randomCooldownBias: <int>,
+        blockingAngle: <float>,
+        axeDisableCooldownTicks: <int>,
+        shieldToughness: <int>,
+        critToughnessDamage: <int>,
+        disableVulnerTicks: <int>,
+        vulnerDamageMultiplier: <float>,
+        disableKBMultiplier: <float>,
+        speedReduction: <float>
+    }
+```
+
+</details>
+
+<details>
+<summary>参数细节</summary>
+
+```text
+enable
+含义: 是否启用这项AI技能
+传参类型: 布尔值
+值域: 0b, 1b
+默认值: 0b
+
+FetchSource
+含义: 可为该技能提供必需物品的有序位置列表
+传参类型: 字符串列表
+值域: mainhand、offhand、inventory、inventory:1至inventory:256，或inventory:1..9等闭区间
+默认值: 省略；保留该技能原有的手槽要求
+说明: 目标手无合适物品时才按顺序扫描；空或无效列表不提供可取物来源
+
+range
+含义: 可以触发举盾行为的最大距离，同时要求生物与目标之间存在视线
+传参类型: 浮点数
+值域: [0.0f, 64.0f]
+默认值: 8.0f
+
+shieldChance
+含义: 每次随机举盾检查的成功概率
+传参类型: 浮点数
+值域: [0.0f, 1.0f]
+默认值: 0.35f
+
+minUseTicks
+含义: 随机举盾时间的游戏刻下限
+传参类型: 整数
+值域: [1, 72000]
+默认值: 80
+
+maxUseTicks
+含义: 随机举盾时间的游戏刻上限；小于minUseTicks的值会被提升至minUseTicks
+传参类型: 整数
+值域: [minUseTicks, 72000]
+默认值: 160
+
+cooldownTicks
+含义: 举盾结束或举盾概率检查失败后冷却的游戏刻
+传参类型: 整数
+值域: [0, 400]
+默认值: 40
+
+blockingAngle
+含义: 盾牌能够格挡的最大攻击角度，单位为度
+传参类型: 浮点数
+值域: [1.0f, 180.0f]
+默认值: 30.0f
+
+axeDisableCooldownTicks
+含义: 破盾攻击导致的盾牌强制禁用游戏刻
+传参类型: 整数
+值域: [0, 600]
+默认值: 100
+
+shieldToughness
+含义: 当前一轮举盾需要受到多少次可破盾攻击才会被破盾
+传参类型: 整数
+值域: [1, 100]
+默认值: 1
+刷新时机: 普通冷却自然结束时，以及强制禁用结束、开始新一轮前
+
+critToughnessDamage
+含义: 满足原版玩家暴击条件的可破盾攻击会消耗多少点盾牌韧性
+传参类型: 整数
+值域: [1, 100]
+默认值: 1
+说明: 普通可破盾攻击固定消耗1点；无法禁用盾牌的攻击不会消耗盾牌韧性
+
+disableVulnerTicks
+含义: 真正破盾后进入破盾虚弱的持续游戏刻
+传参类型: 整数
+值域: [0, 72000]
+默认值: 40
+说明: 0会跳过破盾虚弱
+
+vulnerDamageMultiplier
+含义: 破盾虚弱期间受到伤害的倍率
+传参类型: 浮点数
+值域: [1.0f, 100.0f]
+默认值: 2.0f
+说明: 2.0表示破盾虚弱期间受到两倍伤害；已经显式保存其他值的实体不会迁移为新默认值
+
+disableKBMultiplier
+含义: 真正破盾的最后一击施加的额外破盾击退倍率
+传参类型: 浮点数
+值域: [0.0f, 100.0f]
+默认值: 1.2f
+说明: 0.0会禁用额外破盾击退；实际基础强度为0.6乘以该倍率
+
+speedReduction
+含义: 举盾时的移动速度衰减比例
+传参类型: 浮点数
+值域: [0.0f, 1.0f]
+默认值: 0.5f
+兼容格式: 大于1.0的值会先按百分数换算再进行限制，例如50会被换算为0.5
+
+randomCooldownBias
+含义: 每次盾牌检查开始冷却时额外增加的闭区间均匀随机游戏刻数
+传参类型: 整数
+值域: [0, 1200]
+默认值: 20
+说明: 不影响axeDisableCooldownTicks或disableVulnerTicks；0表示检查使用固定冷却
+
+preferredHand
+类型: string
+值域: main、off、main-enforce、off-enforce
+默认值: "off"
+含义: 动作开始时选择使用手；普通值仅因持续PMB手占用而回退，enforce禁止回退
+```
+
+实体读取数据时，超出值域的参数会被自动限制到相应边界。
+通常情况下，20游戏刻等于1秒。
+
+</details>
+
+<details>
+<summary>指令示例</summary>
+
+```text
+生成一个持有铁剑，盾牌，铁头盔，且可以使用盾牌，盾牌使用参数为默认值的僵尸。
+summon zombie ~ ~ ~ {PmbAi:{skill:{active:{shield:{enable:1b}}}}, equipment:{mainhand:{id:iron_sword}, offhand:{id:shield}, head:{id:iron_helmet}}}
+
+生成一个持有全套钻石甲，盾牌和钻石剑的超级肉盾僵尸。
+超级肉盾僵尸使用盾牌时，启用盾牌，在12格内可举盾，100%成功举盾，举盾4~8秒，举盾冷却3秒，180度无死角格挡，拥有3点盾牌韧性，可破盾暴击造成2点韧性伤害，真正破盾后进入2秒破盾虚弱且受到两倍伤害，并施加1.5倍额外破盾击退，被破盾后强制禁用2.5秒，举盾时减少90%的移动速度。
+(指令较长，请用命令方块)
+summon zombie ~ ~ ~ {PmbAi:{skill:{active:{shield:{enable:1b, range:12.0f, shieldChance:1.0f, minUseTicks:80, maxUseTicks:160, cooldownTicks:60, blockingAngle:180.0f, axeDisableCooldownTicks:50, shieldToughness:3, critToughnessDamage:2, disableVulnerTicks:40, vulnerDamageMultiplier:2.0f, disableKBMultiplier:1.5f, speedReduction:0.9f}}}}, equipment:{mainhand:{id:diamond_sword}, offhand:{id:shield}, head:{id:diamond_helmet}, chest:{id:diamond_chestplate}, legs:{id:diamond_leggings}, feet:{id:diamond_boots}}}
+
+为副手已经持有盾牌的最近一只僵尸启用盾牌AI，其他参数使用默认值。
+data merge entity @e[type=zombie,sort=nearest,limit=1] {PmbAi:{skill:{active:{shield:{enable:1b}}}}}
+
+保留其他参数，仅禁用最近一只僵尸的盾牌AI。
+data merge entity @e[type=zombie,sort=nearest,limit=1] {PmbAi:{skill:{active:{shield:{enable:0b}}}}}
+```
+
+</details>
+
+
+<details><summary>模块化指令快速启用</summary>
+
+```mcfunction
+/pmb skill active @n[type=minecraft:zombie] shield append [enable=1b]
+/pmb skill active @n[type=minecraft:zombie] shield get
+/pmb skill active @n[type=minecraft:zombie] shield modify [enable=0b]
+```
+
+append要求技能节点尚不存在。已有节点的enable若为显式字段使用modify；若尚未手写则使用insert。
+
+</details>
+
+[返回技能指南](../README.md)

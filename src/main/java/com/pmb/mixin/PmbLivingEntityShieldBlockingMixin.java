@@ -46,7 +46,7 @@ public abstract class PmbLivingEntityShieldBlockingMixin {
 	public abstract InteractionHand getUsedItemHand();
 
 	@Shadow
-	protected abstract void blockUsingItem(ServerLevel level, LivingEntity attacker);
+	protected abstract void blockUsingItem(ServerLevel level, LivingEntity attacker, DamageSource source, float amount);
 
 	@Redirect(method = "applyItemBlocking", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/LivingEntity;getItemBlockingWith()Lnet/minecraft/world/item/ItemStack;"))
 	private ItemStack pmb$getImmediateBlockingItem(LivingEntity entity) {
@@ -70,13 +70,13 @@ public abstract class PmbLivingEntityShieldBlockingMixin {
 		return blocksAttacks.resolveBlockedDamage(source, amount, effectiveAngle);
 	}
 
-	@Redirect(method = "applyItemBlocking", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/LivingEntity;blockUsingItem(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/entity/LivingEntity;)V"))
-	private void pmb$applyShieldRecoilOnce(LivingEntity defender, ServerLevel level, LivingEntity attacker,
-			ServerLevel methodLevel, DamageSource source, float amount) {
+	@Redirect(method = "applyItemBlocking", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/entity/LivingEntity;blockUsingItem(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/entity/LivingEntity;Lnet/minecraft/world/damagesource/DamageSource;F)V"))
+	private void pmb$applyShieldRecoilOnce(LivingEntity defender, ServerLevel blockLevel, LivingEntity attacker,
+			DamageSource blockSource, float blockAmount, ServerLevel methodLevel, DamageSource methodSource, float methodAmount) {
 		PmbShieldAiData shieldAi = pmb$shieldAi();
 		if (pmb$isGuardVillagersEntity() || !shieldAi.isConfigured() || !shieldAi.isEnabled()
-				|| pmb$canApplyShieldImpact(source)) {
-			blockUsingItem(level, attacker);
+				|| pmb$canApplyShieldImpact(blockSource)) {
+			blockUsingItem(blockLevel, attacker, blockSource, blockAmount);
 		}
 	}
 
@@ -181,7 +181,7 @@ public abstract class PmbLivingEntityShieldBlockingMixin {
 			return;
 		}
 
-		self.knockback(SHIELD_BREAK_KNOCKBACK_STRENGTH * multiplier, direction.x, direction.z);
+		self.knockback(SHIELD_BREAK_KNOCKBACK_STRENGTH * multiplier, direction.x, direction.z, source, 0.0F);
 	}
 
 	private Vec3 pmb$shieldBreakKnockbackDirection(DamageSource source) {

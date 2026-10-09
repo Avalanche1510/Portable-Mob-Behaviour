@@ -23,6 +23,7 @@ public class PmbWindChargeAiData implements PmbSkillConfigData {
 	private static final float DEFAULT_BOUNCE_RANGE = 4.0F;
 	private static final float DEFAULT_BOUNCE_CHANCE = 0.35F;
 	private static final int DEFAULT_BOUNCE_COOLDOWN_TICKS = 40;
+	private static final int DEFAULT_BOUNCE_POST_JUMP_TICKS = 2;
 	private static final boolean DEFAULT_DO_CONSUME = false;
 	private static final int MAX_COOLDOWN_TICKS = 72000;
 
@@ -38,6 +39,7 @@ public class PmbWindChargeAiData implements PmbSkillConfigData {
 	private float bounceRange = DEFAULT_BOUNCE_RANGE;
 	private float bounceChance = DEFAULT_BOUNCE_CHANCE;
 	private int bounceCooldownTicks = DEFAULT_BOUNCE_COOLDOWN_TICKS;
+	private int bouncePostJumpTicks = DEFAULT_BOUNCE_POST_JUMP_TICKS;
 	private boolean doConsume = DEFAULT_DO_CONSUME;
 	private int randomCooldownBias = PmbSkillTiming.DEFAULT_RANDOM_COOLDOWN_BIAS;
 	private int throwCooldown;
@@ -81,6 +83,7 @@ public class PmbWindChargeAiData implements PmbSkillConfigData {
 	public int bounceCooldownTicks() {
 		return bounceCooldownTicks;
 	}
+	public int bouncePostJumpTicks() { return bouncePostJumpTicks; }
 
 	public boolean doConsume() {
 		return doConsume;
@@ -134,7 +137,7 @@ public class PmbWindChargeAiData implements PmbSkillConfigData {
 		if (windChargeInput.contains("preferredHand")) explicitFields.add("preferredHand");
 		if (fetchSource.isExplicit()) explicitFields.add("FetchSource");
 		for (String key : new String[] {"enable", "throwRange", "throwChance", "throwCooldownTicks", "throwAccuracy",
-				"bounceRange", "bounceChance", "bounceCooldownTicks", "doConsume", "randomCooldownBias"})
+				"bounceRange", "bounceChance", "bounceCooldownTicks", "bouncePostJumpTicks", "doConsume", "randomCooldownBias"})
 			if (PmbAiNbtReader.hasField(windChargeInput, key)) explicitFields.add(key);
 		enabled = getBooleanOr(windChargeInput, "enable", false);
 		throwRange = clamp(getFloatOr(windChargeInput, "throwRange", DEFAULT_THROW_RANGE), 0.0F, 64.0F);
@@ -146,6 +149,8 @@ public class PmbWindChargeAiData implements PmbSkillConfigData {
 		bounceChance = clamp(getFloatOr(windChargeInput, "bounceChance", DEFAULT_BOUNCE_CHANCE), 0.0F, 1.0F);
 		bounceCooldownTicks = clamp(getIntOr(windChargeInput, "bounceCooldownTicks",
 				DEFAULT_BOUNCE_COOLDOWN_TICKS), 0, MAX_COOLDOWN_TICKS);
+		bouncePostJumpTicks = clamp(getIntOr(windChargeInput, "bouncePostJumpTicks",
+				DEFAULT_BOUNCE_POST_JUMP_TICKS), 0, 10);
 		doConsume = getBooleanOr(windChargeInput, "doConsume", DEFAULT_DO_CONSUME);
 		randomCooldownBias = clamp(getIntOr(windChargeInput, "randomCooldownBias",
 				PmbSkillTiming.DEFAULT_RANDOM_COOLDOWN_BIAS), 0, PmbSkillTiming.MAX_RANDOM_COOLDOWN_BIAS);
@@ -164,6 +169,7 @@ public class PmbWindChargeAiData implements PmbSkillConfigData {
 		if (explicitFields.contains("bounceRange")) output.putFloat("bounceRange", bounceRange);
 		if (explicitFields.contains("bounceChance")) output.putFloat("bounceChance", bounceChance);
 		if (explicitFields.contains("bounceCooldownTicks")) output.putInt("bounceCooldownTicks", bounceCooldownTicks);
+		if (explicitFields.contains("bouncePostJumpTicks")) output.putInt("bouncePostJumpTicks", bouncePostJumpTicks);
 		if (explicitFields.contains("doConsume")) output.putBoolean("doConsume", doConsume);
 		if (explicitFields.contains("randomCooldownBias")) output.putInt("randomCooldownBias", randomCooldownBias);
 	}
@@ -183,6 +189,7 @@ public class PmbWindChargeAiData implements PmbSkillConfigData {
 		bounceRange = DEFAULT_BOUNCE_RANGE;
 		bounceChance = DEFAULT_BOUNCE_CHANCE;
 		bounceCooldownTicks = DEFAULT_BOUNCE_COOLDOWN_TICKS;
+		bouncePostJumpTicks = DEFAULT_BOUNCE_POST_JUMP_TICKS;
 		doConsume = DEFAULT_DO_CONSUME;
 		randomCooldownBias = PmbSkillTiming.DEFAULT_RANDOM_COOLDOWN_BIAS;
 		throwCooldown = 0;

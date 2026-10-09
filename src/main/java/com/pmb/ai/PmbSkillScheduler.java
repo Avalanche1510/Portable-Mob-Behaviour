@@ -2,6 +2,8 @@ package com.pmb.ai;
 
 import com.pmb.PortableMobBehaviour;
 import com.pmb.faction.PmbFactionMobState;
+import com.pmb.faction.PmbFactionAi;
+import net.minecraft.world.entity.monster.piglin.Piglin;
 import java.util.EnumMap;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -23,10 +25,10 @@ import net.minecraft.world.level.storage.ValueOutput;
 public final class PmbSkillScheduler {
 	public enum Strategy { IDLE, COMBAT, RETREAT, BLOCKED }
 	public enum Category { MAIN, OFF, THROW, FOOD, BLOCK }
-	public enum Resource { MAIN_HAND, OFF_HAND, USE_ITEM, LOOK, NAVIGATION, SMASH, SHAKE }
+	public enum Resource { MAIN_HAND, OFF_HAND, USE_ITEM, LOOK, SMASH, SHAKE }
 	public enum CommitResult { COMMITTED, FAILED }
 	private record Candidate(String owner, String label, Category category, int rank, Supplier<EnumSet<Resource>> resources,
-			BooleanSupplier preClaim, BooleanSupplier finalCheck, Supplier<CommitResult> commit) {}
+			BooleanSupplier preClaim, BooleanSupplier finalCheck, Supplier<CommitResult> commit, Runnable abort) {}
 	public record ActivePhase(String owner, String label, EnumSet<Resource> required, EnumSet<Resource> optional,
 			BooleanSupplier valid, Runnable cancel) {
 		public ActivePhase {
@@ -36,6 +38,8 @@ public final class PmbSkillScheduler {
 	}
 	private final PmbMovementController movement = new PmbMovementController();
 	public PmbMovementController movement() { return movement; }
+	private final PmbPathfindingController pathfinding = new PmbPathfindingController();
+	public PmbPathfindingController pathfinding() { return pathfinding; }
 	private Strategy strategy = Strategy.IDLE;
 	private UUID authorityTarget;
 	private final Map<String, PmbSkillItemAccess.ActionBinding> bindings = new HashMap<>();
@@ -49,6 +53,21 @@ public final class PmbSkillScheduler {
 	private boolean executingCandidateMarked;
 	private PmbSkillDebugSnapshot lastDebugSnapshot;
 	private final PmbAirTrackingController airTracking = new PmbAirTrackingController();
+	private final PmbConditionalController conditional = new PmbConditionalController();
+	private final PmbImpulseSessionController impulseSessions = new PmbImpulseSessionController();
+	public PmbImpulseSessionController impulseSessions() { return impulseSessions; }
+	public String rescueDebugState() { return conditional.debugState(); }
+	private String landingPriorityOwner = "fall_rescue";
+	public void planFall(Mob mob, PmbPathfindingController.FallImpactContext context, int waitTicks) {
+		conditional.planFall(mob, context, waitTicks);
+	}
+	public PmbPathfindingController.RouteStage plannedFallStage() { return conditional.plannedFallStage(); }
+	public boolean acceptsPlannedFall(Mob mob, PmbPathfindingController.FallImpactContext context) {
+		return conditional.canPromisePlannedFall(mob, this, context);
+	}
+	private final PmbTraversalController traversal = new PmbTraversalController();
+	String traversalProposal() { return traversal.proposal(); }
+	String traversalDiagnostics(Mob mob) { return traversal.diagnostics(mob, this); }
 	private String lastPreemption;
 	private PendingVanillaMelee pendingVanillaMelee;
 	private record PendingVanillaMelee(net.minecraft.server.level.ServerLevel level, net.minecraft.world.entity.Entity target) {}
@@ -62,11 +81,17 @@ public final class PmbSkillScheduler {
 		return true;
 	}
 	public boolean release(Mob mob, String skill) { bindings.remove(skill); return true; }
-	public void clearBindings(Mob mob) { bindings.clear(); movement.clear(); sustained.clear(); activePhases.clear(); }
+	public void clearBindings(Mob mob) { bindings.clear(); movement.clear(); pathfinding.clear(); conditional.clear(); airTracking.clear("runtime_reset"); impulseSessions.clear("runtime_reset"); sustained.clear(); activePhases.clear(); }
 	private final Map<Resource, String> sustained = new EnumMap<>(Resource.class);
 	public boolean handAvailable(String owner, InteractionHand hand) {
-		String current = sustained.get(PmbSkillItemAccess.resource(hand));
-		return current == null || current.equals(owner);
+		Resource resource = PmbSkillItemAccess.resource(hand);
+		String current = sustained.get(resource);
+		if (current == null || current.equals(owner)) return true;
+		int incomingTier = priorityTier(owner);
+		int incumbentTier = priorityTier(current);
+		if (incomingTier < 0 || incumbentTier < 0 || incomingTier >= incumbentTier) return false;
+		return activePhases.values().stream().anyMatch(phase -> phase.owner().equals(current)
+				&& phase.required().contains(resource));
 	}
 	public boolean claim(String owner, Resource... resources) {
 		for (Resource resource : resources) {
@@ -89,9 +114,17 @@ public final class PmbSkillScheduler {
 			cancel.run();
 			return;
 		}
-		if (requiredSet.contains(Resource.NAVIGATION) && !mayOverrideVanillaNavigation(owner)) {
-			cancel.run();
-			return;
+		if (requiredSet.contains(Resource.LOOK) && ownsResource("impulse_landing", Resource.LOOK)) {
+			// A pre-existing higher or equal phase keeps its look. Otherwise the
+			// committed impulse gets its completion tick; optional look never cancels a phase.
+			int landingTier = priorityTier(landingPriorityOwner);
+			if (landingTier < 0 || priorityTier(owner) <= landingTier)
+				unclaim("impulse_landing", Resource.LOOK);
+			else {
+				cancel.run();
+				activePhases.remove(owner + "#" + label);
+				return;
+			}
 		}
 		List<ActivePhase> displaced = new ArrayList<>();
 		for (ActivePhase incumbent : activePhases.values()) {
@@ -113,18 +146,18 @@ public final class PmbSkillScheduler {
 		rebuildActiveClaims();
 	}
 	public Map<String, ActivePhase> activePhases() { return Map.copyOf(activePhases); }
+	public void dropPhase(String owner, String label) {
+		if (activePhases.remove(owner + "#" + label) != null) rebuildActiveClaims();
+	}
 	public PmbSkillPriorities priorities() { return priorities; }
 	public String lastPreemption() { return lastPreemption; }
 	public boolean ownsResource(String owner, Resource resource) { return owner.equals(claimedThisTick.get(resource)); }
-	public String navigationOwner() { return claimedThisTick.get(Resource.NAVIGATION); }
 	public void resetPriorityRuntime(Strategy strategy) {
 		if (strategy == null) roundRobin.clear(); else roundRobin.remove(strategy);
 	}
 	public int priorityTier(String owner) { return priorities.tier(strategy, priorityId(owner)); }
 	public boolean mayOverrideVanillaNavigation(String owner) {
-		int ownerTier = priorityTier(owner);
-		int vanillaTier = priorities.tier(strategy, PmbSkillPriorities.VANILLA);
-		return ownerTier >= 0 && vanillaTier >= 0 && ownerTier < vanillaTier;
+		return true;
 	}
 	public boolean canClaim(String owner, Resource resource) {
 		String current = claimedThisTick.get(resource);
@@ -143,7 +176,7 @@ public final class PmbSkillScheduler {
 				: EnumSet.copyOf(Arrays.asList(resources));
 		candidates.add(new Candidate(owner, label, category, rank, () -> set, preClaim, () -> true,
 				() -> { won.run(); return candidateAttempts == null || executingCandidateMarked
-						? CommitResult.COMMITTED : CommitResult.FAILED; }));
+						? CommitResult.COMMITTED : CommitResult.FAILED; }, () -> {}));
 	}
 	public void offerDynamic(String owner, Category category, int rank, BooleanSupplier preClaim, Runnable won,
 			Supplier<Resource[]> resources) {
@@ -156,7 +189,7 @@ public final class PmbSkillScheduler {
 			return resolved.length == 0 ? EnumSet.noneOf(Resource.class)
 					: EnumSet.copyOf(Arrays.asList(resolved));
 		}, preClaim, () -> true, () -> { won.run(); return candidateAttempts == null || executingCandidateMarked
-				? CommitResult.COMMITTED : CommitResult.FAILED; }));
+				? CommitResult.COMMITTED : CommitResult.FAILED; }, () -> {}));
 	}
 	public void offerPlanned(String owner, String label, Category category, int rank, BooleanSupplier preClaim,
 			BooleanSupplier finalCheck, Runnable commit, Resource... resources) {
@@ -164,13 +197,13 @@ public final class PmbSkillScheduler {
 				: EnumSet.copyOf(Arrays.asList(resources));
 		candidates.add(new Candidate(owner, label, category, rank, () -> set, preClaim, finalCheck,
 				() -> { commit.run(); return candidateAttempts == null || executingCandidateMarked
-						? CommitResult.COMMITTED : CommitResult.FAILED; }));
+						? CommitResult.COMMITTED : CommitResult.FAILED; }, () -> {}));
 	}
 	public void offerPlannedResult(String owner, String label, Category category, int rank, BooleanSupplier preClaim,
 			BooleanSupplier finalCheck, Supplier<CommitResult> commit, Resource... resources) {
 		EnumSet<Resource> set = resources.length == 0 ? EnumSet.noneOf(Resource.class)
 				: EnumSet.copyOf(Arrays.asList(resources));
-		candidates.add(new Candidate(owner, label, category, rank, () -> set, preClaim, finalCheck, commit));
+		candidates.add(new Candidate(owner, label, category, rank, () -> set, preClaim, finalCheck, commit, () -> {}));
 	}
 	public void offerDynamicPlanned(String owner, String label, Category category, int rank,
 			BooleanSupplier preClaim, BooleanSupplier finalCheck, Runnable commit, Supplier<Resource[]> resources) {
@@ -179,16 +212,21 @@ public final class PmbSkillScheduler {
 			return resolved.length == 0 ? EnumSet.noneOf(Resource.class)
 					: EnumSet.copyOf(Arrays.asList(resolved));
 		}, preClaim, finalCheck, () -> { commit.run(); return candidateAttempts == null || executingCandidateMarked
-				? CommitResult.COMMITTED : CommitResult.FAILED; }));
+				? CommitResult.COMMITTED : CommitResult.FAILED; }, () -> {}));
 	}
 	public void offerDynamicPlannedResult(String owner, String label, Category category, int rank,
 			BooleanSupplier preClaim, BooleanSupplier finalCheck, Supplier<CommitResult> commit,
+			Supplier<Resource[]> resources) {
+		offerDynamicPlannedResult(owner, label, category, rank, preClaim, finalCheck, commit, () -> {}, resources);
+	}
+	public void offerDynamicPlannedResult(String owner, String label, Category category, int rank,
+			BooleanSupplier preClaim, BooleanSupplier finalCheck, Supplier<CommitResult> commit, Runnable abort,
 			Supplier<Resource[]> resources) {
 		candidates.add(new Candidate(owner, label, category, rank, () -> {
 			Resource[] resolved = resources.get();
 			return resolved.length == 0 ? EnumSet.noneOf(Resource.class)
 					: EnumSet.copyOf(Arrays.asList(resolved));
-		}, preClaim, finalCheck, commit));
+		}, preClaim, finalCheck, commit, abort));
 	}
 	public static PmbSkillScheduler of(Mob mob) { return ((PmbSchedulerHolder) mob).pmb$getSkillScheduler(); }
 	public void queueVanillaMelee(net.minecraft.server.level.ServerLevel level, net.minecraft.world.entity.Entity target) {
@@ -222,9 +260,14 @@ public final class PmbSkillScheduler {
 	}
 
 	public void tick(Mob mob) {
+		impulseSessions.tick(mob);
 		claimedThisTick.clear();
 		candidates.clear();
 		activePhases.clear();
+		if (impulseSessions.landedThisTick(mob) && !impulseSessions.landedSource().equals("fall_rescue")) {
+			landingPriorityOwner = impulseSessions.landedSource();
+			claim("impulse_landing", Resource.LOOK);
+		}
 		PmbAiData ai = ((PmbAiHolder) mob).pmb$getAiData();
 		priorities = ai.skillPriorities();
 		prepareDebugCapture(ai.isConfigured());
@@ -232,8 +275,11 @@ public final class PmbSkillScheduler {
 		LivingEntity combat = mob.getTarget();
 		Strategy next;
 		LivingEntity target;
+		boolean admiring = mob instanceof Piglin piglin && PmbFactionAi.pausesActiveSkills(piglin);
 		if (!mob.isAlive() || mob.isNoAi() || ((PmbAiHolder) mob).pmb$getAiData().shield().isVulnerable()) {
 			next = Strategy.BLOCKED; target = null;
+		} else if (admiring) {
+			next = Strategy.IDLE; target = null;
 		} else if (valid(mob, avoid)) {
 			next = Strategy.RETREAT; target = avoid;
 		} else if (valid(mob, combat)) {
@@ -245,13 +291,29 @@ public final class PmbSkillScheduler {
 		if (next == Strategy.BLOCKED) cancelSustained(mob);
 		strategy = next;
 		authorityTarget = nextTarget;
+		if (admiring && next != Strategy.BLOCKED) {
+			pauseActiveForAdmiration(mob);
+			conditional.maintainLook(mob, this);
+			conditional.tick(mob, this);
+			resolveCandidates();
+			conditional.applyLook(mob, this);
+			if (candidateAttempts != null) {
+				lastDebugSnapshot = PmbSkillDebugSnapshot.capture(mob, this, ai,
+						candidateAttempts, sustained, claimedThisTick, bindings, movement.snapshot());
+				candidateAttempts = null;
+			}
+			return;
+		}
 		if (((PmbAiHolder) mob).pmb$getAiData().shield().isVulnerable())
 			claim("shield_vulnerability", Resource.SHAKE);
+		conditional.maintainLook(mob, this);
 		((PmbSkillHooks.Bow) mob).pmb$claimBowResources(this);
 		((PmbSkillHooks.Shield) mob).pmb$claimShieldResources(this);
 		((PmbSkillHooks.Wind) mob).pmb$claimWindResources(this);
 		((PmbSkillHooks.Pearl) mob).pmb$claimPearlResources(this);
+		traversal.claimResources(mob, this);
 		airTracking.tick(mob, this);
+		pathfinding.tick(mob, this);
 		sustained.clear();
 		sustained.putAll(claimedThisTick);
 		((PmbSkillHooks.Mace) mob).pmb$tickMaceSkill();
@@ -259,6 +321,8 @@ public final class PmbSkillScheduler {
 		((PmbSkillHooks.Shield) mob).pmb$tickShieldSkill();
 		((PmbSkillHooks.Pearl) mob).pmb$tickPearlSkill();
 		((PmbSkillHooks.Wind) mob).pmb$tickWindSkill();
+		conditional.tick(mob, this);
+		traversal.tick(mob, this);
 		if (pendingVanillaMelee != null) {
 			PendingVanillaMelee pending = pendingVanillaMelee;
 			offerPlanned(PmbSkillPriorities.VANILLA, "melee", Category.MAIN, 0, () -> true,
@@ -272,6 +336,12 @@ public final class PmbSkillScheduler {
 			pendingVanillaMelee = null;
 		}
 		resolveCandidates();
+		conditional.applyLook(mob, this);
+		pathfinding.refreshTraversalDebug(traversal.routeStage(), traversal.proposal());
+		if (ownsResource("impulse_landing", Resource.LOOK)) {
+			mob.getLookControl().setLookAt(mob.getX(), mob.getY() - 1, mob.getZ(), 180, 180);
+			mob.setXRot(90);
+		}
 		if (candidateAttempts != null) {
 			lastDebugSnapshot = PmbSkillDebugSnapshot.capture(mob, this, ai,
 					candidateAttempts, sustained, claimedThisTick, bindings, movement.snapshot());
@@ -288,24 +358,11 @@ public final class PmbSkillScheduler {
 	private void resolveCandidates() {
 		List<Candidate> ordered = orderedCandidates();
 		for (Candidate candidate : ordered) {
-			if (!candidate.preClaim().getAsBoolean()) {
-				if (candidateAttempts != null) candidateAttempts.add(
-						PmbSkillDebugSnapshot.CandidateAttempt.preClaimRejected(candidate.owner(),
-								candidate.label(), candidate.category(), candidate.rank()));
-				continue;
-			}
 			Resource[] resources = candidate.resources().get().toArray(Resource[]::new);
 			Resource blocked = null;
 			String blocker = null;
 			List<ActivePhase> preempt = new ArrayList<>();
 			int candidateTier = priorities.tier(strategy, priorityId(candidate.owner()));
-			if (java.util.Arrays.asList(resources).contains(Resource.NAVIGATION)
-					&& !mayOverrideVanillaNavigation(candidate.owner())) {
-				if (candidateAttempts != null) candidateAttempts.add(PmbSkillDebugSnapshot.CandidateAttempt.resourceBlocked(
-						candidate.owner(), candidate.label(), candidate.category(), candidate.rank(), resources,
-						Resource.NAVIGATION, PmbSkillPriorities.VANILLA));
-				continue;
-			}
 			for (ActivePhase phase : activePhases.values()) {
 				if (phase.owner().equals(candidate.owner())) continue;
 				EnumSet<Resource> conflict = phase.required().clone();
@@ -323,22 +380,32 @@ public final class PmbSkillScheduler {
 				}
 			}
 			if (blocked != null) {
+				if (candidate.owner().equals("fall_rescue")) candidate.abort().run();
 				if (candidateAttempts != null) candidateAttempts.add(PmbSkillDebugSnapshot.CandidateAttempt.resourceBlocked(candidate.owner(),
 						candidate.label(), candidate.category(), candidate.rank(), resources, blocked, blocker));
 				continue;
 			}
+			// Attempt probability and its cooldown run only after priority/resources admit
+			// the candidate. A suppressed candidate therefore pays no attempt cost.
+			if (!candidate.preClaim().getAsBoolean()) {
+				if (candidate.owner().equals("fall_rescue")) candidate.abort().run();
+				if (candidateAttempts != null) candidateAttempts.add(
+						PmbSkillDebugSnapshot.CandidateAttempt.preClaimRejected(candidate.owner(),
+								candidate.label(), candidate.category(), candidate.rank()));
+				continue;
+			}
 			if (!candidate.finalCheck().getAsBoolean()) {
+				candidate.abort().run();
 				if (candidateAttempts != null) candidateAttempts.add(
 						PmbSkillDebugSnapshot.CandidateAttempt.admitted(candidate.owner(), candidate.label(),
 								candidate.category(), candidate.rank(), resources).completed(false));
 				continue;
 			}
-			for (ActivePhase phase : preempt) {
-				lastPreemption = phase.owner() + '/' + phase.label() + " -> " + candidate.owner() + '/' + candidate.label();
-				phase.cancel().run();
-				activePhases.entrySet().removeIf(entry -> entry.getValue() == phase);
-			}
-			rebuildActiveClaims();
+			// Admission may temporarily borrow a lower-priority incumbent's resources,
+			// but the incumbent is cancelled only after an irreversible commit. A failed
+			// mace hit therefore restores the incumbent and lets fall_rescue continue.
+			for (ActivePhase phase : preempt) for (Resource resource : phase.required())
+				if (phase.owner().equals(claimedThisTick.get(resource))) claimedThisTick.remove(resource);
 			claimCandidateRequired(candidate.owner(), resources);
 			if (candidateAttempts != null) {
 				candidateAttempts.add(PmbSkillDebugSnapshot.CandidateAttempt.admitted(candidate.owner(),
@@ -354,19 +421,29 @@ public final class PmbSkillScheduler {
 				if (candidateAttempts != null && executingCandidate >= 0) {
 					PmbSkillDebugSnapshot.CandidateAttempt current = candidateAttempts.get(executingCandidate);
 					candidateAttempts.set(executingCandidate, result == CommitResult.COMMITTED
-							? current.completed(true) : current.commitFailed(!preempt.isEmpty()));
+							? current.completed(true) : current.commitFailed(false));
 				}
 				executingCandidate = -1;
 				executingCandidateMarked = false;
 			}
 			if (result == CommitResult.COMMITTED) {
+				for (ActivePhase phase : preempt) {
+					lastPreemption = phase.owner() + '/' + phase.label() + " -> " + candidate.owner() + '/' + candidate.label();
+					phase.cancel().run();
+					activePhases.entrySet().removeIf(entry -> entry.getValue() == phase);
+				}
 				advanceRoundRobin(candidateTier, candidate.owner());
 				break;
 			}
+			candidate.abort().run();
 			rebuildActiveClaims();
-			if (commitFailure != null) PortableMobBehaviour.LOGGER.error("PMB skill commit failed for {}/{}",
-					candidate.owner(), candidate.label(), commitFailure);
-			break;
+			if (commitFailure != null) {
+				PortableMobBehaviour.LOGGER.error("PMB skill commit failed for {}/{}",
+						candidate.owner(), candidate.label(), commitFailure);
+				break;
+			}
+			// Nothing irreversible was committed, so a lower-priority conditional may
+			// still act this tick (for example fall_rescue after a missed mace hit).
 		}
 	}
 	private void claimCandidateRequired(String owner, Resource[] resources) {
@@ -381,12 +458,15 @@ public final class PmbSkillScheduler {
 	}
 	private void rebuildActiveClaims() {
 		String shieldVulnerability = claimedThisTick.get(Resource.SHAKE);
+		boolean landing = ownsResource("impulse_landing", Resource.LOOK);
 		claimedThisTick.clear();
 		if (shieldVulnerability != null) claimedThisTick.put(Resource.SHAKE, shieldVulnerability);
+		if (landing) claimedThisTick.put(Resource.LOOK, "impulse_landing");
 		for (ActivePhase phase : activePhases.values()) {
-			for (Resource resource : phase.required()) claimedThisTick.put(resource, phase.owner());
-			for (Resource resource : phase.optional()) claimedThisTick.putIfAbsent(resource, phase.owner());
+			for (Resource resource : phase.required()) claimedThisTick.putIfAbsent(resource, phase.owner());
 		}
+		for (ActivePhase phase : activePhases.values())
+			for (Resource resource : phase.optional()) claimedThisTick.putIfAbsent(resource, phase.owner());
 	}
 	private List<Candidate> orderedCandidates() {
 		List<List<String>> tiers = priorities.effective(strategy);
@@ -427,12 +507,23 @@ public final class PmbSkillScheduler {
 		};
 	}
 	private void cancelSustained(Mob mob) {
+		conditional.cancelTemporary();
 		movement.clear();
 		((PmbSkillHooks.Bow) mob).pmb$cancelBowSkill();
 		((PmbSkillHooks.Shield) mob).pmb$cancelShieldSkill();
 		((PmbSkillHooks.Wind) mob).pmb$cancelWindSkill();
 		airTracking.clear("blocked");
 		((PmbSkillHooks.Pearl) mob).pmb$cancelPearlSkill();
+	}
+	private void pauseActiveForAdmiration(Mob mob) {
+		movement.clear();
+		pendingVanillaMelee = null;
+		((PmbSkillHooks.Bow) mob).pmb$cancelBowSkill();
+		((PmbSkillHooks.Shield) mob).pmb$cancelShieldSkill();
+		((PmbSkillHooks.Wind) mob).pmb$cancelWindSkill();
+		((PmbSkillHooks.Pearl) mob).pmb$cancelPearlSkill();
+		airTracking.clear("piglin_admiring");
+		sustained.clear();
 	}
 	private static boolean valid(Mob mob, LivingEntity target) {
 		return target != null && target.isAlive() && target.level() == mob.level();

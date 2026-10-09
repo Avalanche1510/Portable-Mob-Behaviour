@@ -19,7 +19,9 @@ public class PmbAiData {
 	private final PmbMaceAiData mace = new PmbMaceAiData();
 	private final PmbBowAiData bow = new PmbBowAiData();
 	private final PmbEnderPearlAiData enderPearl = new PmbEnderPearlAiData();
-	private final PmbAirTrackingAiData airTracking = new PmbAirTrackingAiData();
+	private final PmbTraversalGroupAiData traversal = new PmbTraversalGroupAiData();
+	private final PmbFallRescueAiData fallRescue = new PmbFallRescueAiData();
+	private final PmbPathfindingData pathfinding = new PmbPathfindingData();
 	private final PmbSkillPriorities skillPriorities = new PmbSkillPriorities();
 
 	public PmbSkillPriorities skillPriorities() { return skillPriorities; }
@@ -43,11 +45,17 @@ public class PmbAiData {
 	public PmbEnderPearlAiData enderPearl() {
 		return enderPearl;
 	}
-	public PmbAirTrackingAiData airTracking() { return airTracking; }
+	public PmbTraversalGroupAiData traversal() { return traversal; }
+	public PmbTraversalAiData windTraversal() { return traversal.wind(); }
+	public PmbTraversalAiData pearlTraversal() { return traversal.pearl(); }
+	public PmbFallRescueAiData fallRescue() { return fallRescue; }
+	public PmbPathfindingData pathfinding() { return pathfinding; }
+	public PmbAirTrackingAiData airTracking() { return pathfinding.airTracking(); }
 
 	public boolean isConfigured() {
 		return shield.isConfigured() || windCharge.isConfigured() || mace.isConfigured() || bow.isConfigured()
-				|| enderPearl.isConfigured() || airTracking.isConfigured();
+				|| enderPearl.isConfigured() || traversal.isConfigured()
+				|| fallRescue.isConfigured() || pathfinding.isConfigured();
 	}
 	public boolean hasPersistentData() { return isConfigured() || skillPriorities.hasOverrides(); }
 
@@ -58,7 +66,12 @@ public class PmbAiData {
 			case PmbMaceAiData.TAG -> mace;
 			case PmbBowAiData.TAG -> bow;
 			case PmbEnderPearlAiData.TAG -> enderPearl;
-			case PmbAirTrackingAiData.TAG -> airTracking;
+			case PmbTraversalGroupAiData.TAG -> traversal;
+			case "traversal.wind_charge" -> traversal.wind();
+			case "traversal.ender_pearl" -> traversal.pearl();
+			case PmbFallRescueAiData.TAG -> fallRescue;
+			case "fall_rescue.wind_charge" -> fallRescue.wind();
+			case "fall_rescue.ender_pearl" -> fallRescue.pearl();
 			default -> throw new IllegalArgumentException("Unknown PMB skill: " + id);
 		};
 	}
@@ -84,13 +97,29 @@ public class PmbAiData {
 		try (ProblemReporter.ScopedCollector reporter = new ProblemReporter.ScopedCollector(PortableMobBehaviour.LOGGER)) {
 			ValueInput root = TagValueInput.create(reporter, registries, snapshot);
 			ValueInput ai = root.childOrEmpty(TAG);
+			ValueInput skill = ai.childOrEmpty("skill");
+			ValueInput active = skill.childOrEmpty("active");
+			ValueInput conditional = skill.childOrEmpty("conditional");
 			switch (id) {
-				case PmbShieldAiData.TAG -> shield.read(ai);
-				case PmbWindChargeAiData.TAG -> windCharge.read(ai);
-				case PmbMaceAiData.TAG -> mace.read(ai);
-				case PmbBowAiData.TAG -> bow.read(ai);
-				case PmbEnderPearlAiData.TAG -> enderPearl.read(ai);
-				case PmbAirTrackingAiData.TAG -> airTracking.read(ai);
+				case PmbShieldAiData.TAG -> shield.read(active);
+				case PmbWindChargeAiData.TAG -> windCharge.read(active);
+				case PmbMaceAiData.TAG -> mace.read(conditional);
+				case PmbBowAiData.TAG -> bow.read(active);
+				case PmbEnderPearlAiData.TAG -> enderPearl.read(active);
+				case PmbTraversalGroupAiData.TAG -> traversal.read(conditional);
+				case "traversal.wind_charge", "traversal.ender_pearl" -> {
+					int other = id.endsWith("wind_charge") ? traversal.pearl().cooldownRemaining() : traversal.wind().cooldownRemaining();
+					traversal.read(conditional);
+					if (id.endsWith("wind_charge")) traversal.pearl().restoreCooldown(0, other);
+					else traversal.wind().restoreCooldown(0, other);
+				}
+				case PmbFallRescueAiData.TAG -> fallRescue.read(conditional);
+				case "fall_rescue.wind_charge", "fall_rescue.ender_pearl" -> {
+					int other = id.endsWith("wind_charge") ? fallRescue.pearlCooldownRemaining() : fallRescue.windCooldownRemaining();
+					fallRescue.read(conditional);
+					if (id.endsWith("wind_charge")) fallRescue.pearl().restore(0, other);
+					else fallRescue.wind().restore(0, other);
+				}
 				default -> throw new IllegalArgumentException("Unknown PMB skill: " + id);
 			}
 		}
@@ -103,13 +132,18 @@ public class PmbAiData {
 			return;
 		}
 
-		shield.read(aiInput.get());
-		windCharge.read(aiInput.get());
-		mace.read(aiInput.get());
-		bow.read(aiInput.get());
-		enderPearl.read(aiInput.get());
-		airTracking.read(aiInput.get());
-		skillPriorities.read(aiInput.get());
+		ValueInput skill = aiInput.get().childOrEmpty("skill");
+		ValueInput active = skill.childOrEmpty("active");
+		ValueInput conditional = skill.childOrEmpty("conditional");
+		shield.read(active);
+		windCharge.read(active);
+		bow.read(active);
+		enderPearl.read(active);
+		mace.read(conditional);
+		traversal.read(conditional);
+		fallRescue.read(conditional);
+		skillPriorities.read(skill);
+		pathfinding.read(aiInput.get());
 	}
 
 	public void write(ValueOutput output) {
@@ -118,23 +152,28 @@ public class PmbAiData {
 		}
 
 		ValueOutput ai = output.child(TAG);
-		skillPriorities.write(ai);
+		ValueOutput skill = ai.child("skill");
+		ValueOutput active = skill.child("active");
+		ValueOutput conditional = skill.child("conditional");
+		skillPriorities.write(skill);
 		if (shield.isConfigured()) {
-			shield.write(ai.child(PmbShieldAiData.TAG));
+			shield.write(active.child(PmbShieldAiData.TAG));
 		}
 		if (windCharge.isConfigured()) {
-			windCharge.write(ai.child(PmbWindChargeAiData.TAG));
+			windCharge.write(active.child(PmbWindChargeAiData.TAG));
 		}
 		if (mace.isConfigured()) {
-			mace.write(ai.child(PmbMaceAiData.TAG));
+			mace.write(conditional.child(PmbMaceAiData.TAG));
 		}
 		if (bow.isConfigured()) {
-			bow.write(ai.child(PmbBowAiData.TAG));
+			bow.write(active.child(PmbBowAiData.TAG));
 		}
 		if (enderPearl.isConfigured()) {
-			enderPearl.write(ai.child(PmbEnderPearlAiData.TAG));
+			enderPearl.write(active.child(PmbEnderPearlAiData.TAG));
 		}
-		if (airTracking.isConfigured()) airTracking.write(ai.child(PmbAirTrackingAiData.TAG));
+		if (traversal.isConfigured()) traversal.write(conditional.child(PmbTraversalGroupAiData.TAG));
+		if (fallRescue.isConfigured()) fallRescue.write(conditional.child(PmbFallRescueAiData.TAG));
+		pathfinding.write(ai);
 	}
 
 	public void writeRuntime(ValueOutput output, long gameTime) {
@@ -149,6 +188,10 @@ public class PmbAiData {
 		runtime.putInt("BowLine", bow.lineCooldownRemaining());
 		runtime.putInt("BowArc", bow.arcCooldownRemaining());
 		runtime.putInt("Pearl", enderPearl.cooldownRemaining());
+		runtime.putInt("WindTraversal", traversal.wind().cooldownRemaining());
+		runtime.putInt("PearlTraversal", traversal.pearl().cooldownRemaining());
+		runtime.putInt("FallRescueWind", fallRescue.windCooldownRemaining());
+		runtime.putInt("FallRescuePearl", fallRescue.pearlCooldownRemaining());
 	}
 
 	public void readRuntime(ValueInput input, long gameTime) {
@@ -161,6 +204,10 @@ public class PmbAiData {
 		mace.restoreCooldown(elapsed, runtime.getIntOr("Mace", 0));
 		bow.restoreCooldowns(elapsed, runtime.getIntOr("BowLine", 0), runtime.getIntOr("BowArc", 0));
 		enderPearl.restoreCooldown(elapsed, runtime.getIntOr("Pearl", 0));
+		traversal.wind().restoreCooldown(elapsed, runtime.getIntOr("WindTraversal", 0));
+		traversal.pearl().restoreCooldown(elapsed, runtime.getIntOr("PearlTraversal", 0));
+		fallRescue.restoreCooldowns(elapsed, runtime.getIntOr("FallRescueWind", 0),
+				runtime.getIntOr("FallRescuePearl", 0));
 	}
 
 	public void copyTo(PmbAiData target, long gameTime, HolderLookup.Provider registries) {
@@ -180,7 +227,9 @@ public class PmbAiData {
 		mace.clear();
 		bow.clear();
 		enderPearl.clear();
-		airTracking.clear();
+		traversal.clear();
+		fallRescue.clear();
+		pathfinding.clear();
 		skillPriorities.resetAll();
 	}
 }

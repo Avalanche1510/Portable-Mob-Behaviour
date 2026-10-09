@@ -3,6 +3,7 @@ package com.pmb.mixin;
 import com.pmb.ai.PmbAiHolder;
 import com.pmb.ai.PmbEnderPearlAiData;
 import com.pmb.ai.PmbEnderPearlBallistics;
+import com.pmb.ai.PmbEnderPearlDamageHolder;
 import com.pmb.ai.PmbShieldAiData;
 import com.pmb.ai.PmbSkillHooks;
 import com.pmb.ai.PmbSkillItemAccess;
@@ -159,6 +160,7 @@ public abstract class PmbMobEnderPearlMixin extends LivingEntity implements PmbS
 		pmb$facePearlVelocity(mob, velocity);
 
 		ThrownEnderpearl pearl = new ThrownEnderpearl(level, this, projectileStack);
+		((PmbEnderPearlDamageHolder) pearl).pmb$setTeleportDamage(pearlAi.doTeleportDamage());
 		float inaccuracy = (1.0F - pearlAi.throwAccuracy()) * 12.0F;
 		float speed = (float) velocity.length();
 		Projectile.spawnProjectileUsingShoot(pearl, level, projectileStack,

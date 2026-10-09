@@ -7,15 +7,18 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import net.minecraft.network.chat.Component;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.StringTag;
 import net.minecraft.nbt.Tag;
 
-/** Canonical command-facing schema for the five persisted PMB skills. */
+/** Canonical command-facing schema for persisted active and conditional PMB skills. */
 public final class PmbSkillSchema {
-	public enum Kind { BOOLEAN, INTEGER, FLOAT, STRING, ACTIVATION_SOURCES, AMMO_SOURCES, SKILL_IDS }
+	public enum Kind { BOOLEAN, INTEGER, FLOAT, STRING, ACTIVATION_SOURCES, AMMO_SOURCES,
+		STRING_LIST }
+	public enum SkillKind { ACTIVE, CONDITIONAL }
 	public record Field(String name, Kind kind, Tag defaultValue, double min, double max, List<String> choices) {
 		public String defaultText() { return defaultValue.toString(); }
 		public String description() {
@@ -26,7 +29,7 @@ public final class PmbSkillSchema {
 				case STRING -> "quoted value " + choices + "; default " + defaultText();
 				case ACTIVATION_SOURCES -> "quoted source list; default omitted";
 				case AMMO_SOURCES -> "quoted ammunition-source list; default omitted";
-				case SKILL_IDS -> "quoted PMB skill-id list";
+				case STRING_LIST -> "quoted list using " + choices + "; default " + defaultText();
 			};
 		}
 		private String rangeText() { return "[" + formatBound(min) + ", " + formatBound(max) + "]"; }
@@ -37,7 +40,7 @@ public final class PmbSkillSchema {
 	private static final Map<String, PmbSkillSchema> SCHEMAS = new LinkedHashMap<>();
 
 	static {
-		register(new PmbSkillSchema("shield", List.of(
+		register(new PmbSkillSchema("shield", SkillKind.ACTIVE, List.of(
 				activation("offhand"), preferred("off"), bool("enable", false), flt("range", 8.0F, 0, 64), flt("shieldChance", 0.35F, 0, 1),
 				integer("minUseTicks", 80, 1, 72000), integer("maxUseTicks", 160, 1, 72000),
 				integer("cooldownTicks", 40, 0, 400), randomCooldownBias(), flt("blockingAngle", 30.0F, 1, 180),
@@ -45,19 +48,15 @@ public final class PmbSkillSchema {
 				integer("critToughnessDamage", 1, 1, 100), integer("disableVulnerTicks", 40, 0, 72000),
 				flt("vulnerDamageMultiplier", 2.0F, 1, 100), flt("disableKBMultiplier", 1.2F, 0, 100),
 				flt("speedReduction", 0.5F, 0, 1))));
-		register(new PmbSkillSchema("wind_charge", List.of(
+		register(new PmbSkillSchema("wind_charge", SkillKind.ACTIVE, List.of(
 				activation("mainhand", "offhand"), preferred("off"), bool("enable", false), flt("throwRange", 16.0F, 0, 64), flt("throwChance", 0.35F, 0, 1),
 				integer("throwCooldownTicks", 40, 0, 72000), flt("throwAccuracy", 0.9F, 0, 1),
 				flt("bounceRange", 4.0F, 0, 64), flt("bounceChance", 0.35F, 0, 1),
-				integer("bounceCooldownTicks", 40, 0, 72000), randomCooldownBias(), bool("doConsume", false))));
-		register(new PmbSkillSchema("air_tracking", List.of(
-				bool("enable", false), skillIds("wind_charge", "mace"), flt("trackAcceleration", 0.012F, 0, 1),
-				flt("trackMaxHorizontalSpeed", 0.3F, 0, 3), integer("trackDurationTicks", -1, -1, 72000),
-				bool("requireEyeSight", true))));
-		register(new PmbSkillSchema("mace", List.of(
+				integer("bounceCooldownTicks", 40, 0, 72000), integer("bouncePostJumpTicks", 2, 0, 10), randomCooldownBias(), bool("doConsume", false))));
+		register(new PmbSkillSchema("mace", SkillKind.CONDITIONAL, List.of(
 				activation("mainhand"), bool("enable", false), flt("smashRange", 3.0F, 0, 64), flt("hitChance", 0.5F, 0, 1),
 				flt("damageReduction", 0.5F, 0, 1), integer("smashCooldownTicks", 100, 0, 72000), randomCooldownBias())));
-		register(new PmbSkillSchema("bow", List.of(
+		register(new PmbSkillSchema("bow", SkillKind.ACTIVE, List.of(
 				activation("mainhand"), preferred("main"), ammo(), bool("enable", false), bool("doConsume", false), bool("requireEyeSight", true),
 				string("modePriority", "line", "line", "arc"), bool("mobileWhileShooting", true),
 				flt("lineMinRange", 0.0F, 0, 256), flt("lineMaxRange", 16.0F, 0, 256),
@@ -69,22 +68,43 @@ public final class PmbSkillSchema {
 				integer("arcCooldownTicks", 60, 0, 72000), randomCooldownBias(), flt("arcShootChance", 0.8F, 0, 1),
 				flt("arcShootAccuracy", 0.9F, 0, 1), integer("arcChargeTicks", 20, 0, 72000),
 				flt("arcAngle", 42.0F, 1, 89), flt("arcMaxPower", 1.0F, 0.1, 10))));
-		register(new PmbSkillSchema("ender_pearl", List.of(
+		register(new PmbSkillSchema("ender_pearl", SkillKind.ACTIVE, List.of(
 				activation("mainhand", "offhand"), preferred("off"), bool("enable", false), flt("minThrowRange", 4.0F, 0, 256),
 				flt("maxThrowRange", 16.0F, 0, 256), flt("throwChance", 0.35F, 0, 1),
 				integer("throwCooldownTicks", 40, 0, 72000), flt("throwAccuracy", 0.9F, 0, 1),
 				flt("maxThrowPower", 1.0F, 0.1, 10), flt("throwAngle", 30.0F, 1, 89),
-				bool("doConsume", false), bool("requireEyeSight", true), randomCooldownBias())));
+				bool("doConsume", false), bool("doTeleportDamage", false), bool("requireEyeSight", true), randomCooldownBias())));
+		register(new PmbSkillSchema("traversal", SkillKind.CONDITIONAL, List.of(
+				bool("enable", false), stringList("methods", "wind_charge", "ender_pearl"))));
+		register(new PmbSkillSchema("traversal.wind_charge", SkillKind.CONDITIONAL, List.of(
+				activation("offhand", "mainhand"), preferred("off"), bool("enable", true), bool("doConsume", false),
+				integer("cooldownTicks", 40, 0, 72000), randomCooldownBias(), flt("maxConnectionDistance", 16, 0, 256),
+				flt("minHorizontalConnectionDistance", 0, 0, 256),
+				flt("maxConnectionHeight", 8, 0, 256), integer("minSavedTicks", 10, 0, 72000),
+				integer("postJumpTicks", 2, 0, 10))));
+		register(new PmbSkillSchema("traversal.ender_pearl", SkillKind.CONDITIONAL, List.of(
+				activation("offhand", "mainhand"), preferred("off"), bool("enable", true), bool("doConsume", false),
+				bool("doTeleportDamage", false), integer("cooldownTicks", 40, 0, 72000), randomCooldownBias(),
+				flt("maxConnectionDistance", 64, 0, 256), flt("maxConnectionHeight", 64, 0, 256),
+				flt("throwAngle", 30, 1, 89), flt("maxThrowPower", 1, .1, 10), flt("throwAccuracy", 1, 0, 1))));
+		register(new PmbSkillSchema("fall_rescue", SkillKind.CONDITIONAL, List.of(
+				bool("enable", false), flt("minRescueDamage", 1, 0, 1000), bool("singleMethodPerFall", true),
+				stringList("methods", "wind_charge", "ender_pearl"))));
+		register(new PmbSkillSchema("fall_rescue.wind_charge", SkillKind.CONDITIONAL, rescueMethodFields(false)));
+		register(new PmbSkillSchema("fall_rescue.ender_pearl", SkillKind.CONDITIONAL, rescueMethodFields(true)));
 	}
 
 	private final String id;
+	private final SkillKind skillKind;
 	private final LinkedHashMap<String, Field> fields = new LinkedHashMap<>();
 
-	private PmbSkillSchema(String id, List<Field> fields) {
+	private PmbSkillSchema(String id, SkillKind skillKind, List<Field> fields) {
 		this.id = id;
+		this.skillKind = skillKind;
 		for (Field field : fields) this.fields.put(field.name(), field);
 	}
 	public String id() { return id; }
+	public SkillKind skillKind() { return skillKind; }
 	public Collection<Field> fields() { return fields.values(); }
 	public Field field(String name) { return fields.get(name); }
 	public boolean hasField(String name) { return fields.containsKey(name); }
@@ -126,7 +146,7 @@ public final class PmbSkillSchema {
 					if (!field.choices().contains(value)) throw invalid(field.name() + " must be one of " + field.choices());
 				}
 				case ACTIVATION_SOURCES, AMMO_SOURCES -> validateSources(tag, field.name());
-				case SKILL_IDS -> validateSkillIds(tag, field.name());
+				case STRING_LIST -> validateStringList(tag, field);
 			}
 		}
 		if (id.equals("shield") && integer(values, "minUseTicks", 80) > integer(values, "maxUseTicks", 160))
@@ -153,14 +173,25 @@ public final class PmbSkillSchema {
 		} catch (NumberFormatException ignored) { return false; }
 	}
 	public static boolean isRegisteredSkill(String value) { return SCHEMAS.containsKey(value); }
-	private static void validateSkillIds(Tag tag, String name) throws CommandSyntaxException {
-		ListTag list = tag.asList().orElseThrow(() -> invalid(name + " must be a string list"));
+	private static void validateStringList(Tag tag, Field field) throws CommandSyntaxException {
+		ListTag list = tag.asList().orElseThrow(() -> invalid(field.name() + " must be a string list"));
 		java.util.HashSet<String> seen = new java.util.HashSet<>();
 		for (Tag entry : list) {
-			String value = entry.asString().orElseThrow(() -> invalid(name + " must contain quoted strings"));
-			if (!isRegisteredSkill(value) || value.equals("air_tracking") || !seen.add(value))
-				throw invalid("Invalid " + name + " entry: " + value);
+			String value = entry.asString().orElseThrow(() -> invalid(field.name() + " must contain quoted strings"));
+			if (!field.choices().contains(value) || !seen.add(value))
+				throw invalid("Invalid " + field.name() + " entry: " + value);
 		}
+	}
+	public static List<Field> rescueMethodFields(boolean pearl) {
+		List<Field> fields = new java.util.ArrayList<>(List.of(bool("enable", true), preferred("off"), activation("offhand", "mainhand"),
+				bool("doConsume", false), flt("successChance", 1, 0, 1), integer("cooldownTicks", 20, 0, 72000),
+				integer("randomCooldownBias", 0, 0, 1200), integer("rescueLeadTicks", 4, 0, 1200)));
+		if (pearl) {
+			fields.add(bool("doTeleportDamage", false));
+			fields.add(flt("maxThrowPower", 1, .1, 10));
+			fields.add(flt("throwAccuracy", 1, 0, 1));
+		}
+		return List.copyOf(fields);
 	}
 
 	private static void validateSources(Tag tag, String name) throws CommandSyntaxException {
@@ -188,9 +219,9 @@ public final class PmbSkillSchema {
 	private static Field ammo() {
 		return new Field("AmmoSource", Kind.AMMO_SOURCES, new ListTag(), 0, 0, List.of());
 	}
-	private static Field skillIds(String... values) {
+	private static Field stringList(String name, String... values) {
 		ListTag list = new ListTag(); for (String value : values) list.add(StringTag.valueOf(value));
-		return new Field("activationSkills", Kind.SKILL_IDS, list, 0, 0, List.of());
+		return new Field(name, Kind.STRING_LIST, list, 0, 0, List.of(values));
 	}
 	private static Field bool(String name, boolean value) { return new Field(name, Kind.BOOLEAN, net.minecraft.nbt.ByteTag.valueOf(value), 0, 1, List.of()); }
 	private static Field integer(String name, int value, double min, double max) { return new Field(name, Kind.INTEGER, net.minecraft.nbt.IntTag.valueOf(value), min, max, List.of()); }

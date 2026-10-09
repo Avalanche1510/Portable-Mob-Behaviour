@@ -110,8 +110,25 @@ public final class PmbSkillParametersArgument implements ArgumentType<PmbSkillPa
 				yield StringTag.valueOf(value);
 			}
 			case ACTIVATION_SOURCES, AMMO_SOURCES -> readSources(reader, field.name());
-			case SKILL_IDS -> readSkillIds(reader, field.name());
+			case STRING_LIST -> readChoiceList(reader, field);
 		};
+	}
+	private ListTag readChoiceList(StringReader reader, PmbSkillSchema.Field field) throws CommandSyntaxException {
+		ListTag result = new ListTag(); java.util.HashSet<String> seen = new java.util.HashSet<>();
+		expect(reader, '[', "Expected '[' for " + field.name()); skipWhitespace(reader);
+		if (reader.canRead() && reader.peek() == ']') { reader.skip(); return result; }
+		while (true) {
+			int start = reader.getCursor();
+			if (!reader.canRead() || reader.peek() != '"') failAt(reader, start, field.name() + " entries must be quoted");
+			String value = reader.readQuotedString();
+			if (!field.choices().contains(value) || !seen.add(value)) failAt(reader, start, "Invalid " + field.name() + " entry: " + value);
+			result.add(StringTag.valueOf(value)); skipWhitespace(reader);
+			if (!reader.canRead()) throw ERROR.createWithContext(reader, "Expected ',' or ']' in " + field.name());
+			char separator = reader.read(); if (separator == ']') break;
+			if (separator != ',') throw ERROR.createWithContext(reader, "Expected ',' or ']' in " + field.name());
+			skipWhitespace(reader);
+		}
+		return result;
 	}
 
 	private ListTag readSources(StringReader reader, String key) throws CommandSyntaxException {
@@ -129,24 +146,6 @@ public final class PmbSkillParametersArgument implements ArgumentType<PmbSkillPa
 			if (!reader.canRead()) throw ERROR.createWithContext(reader, "Expected ',' or ']' in " + key);
 			char separator = reader.read();
 			if (separator == ']') break;
-			if (separator != ',') throw ERROR.createWithContext(reader, "Expected ',' or ']' in " + key);
-			skipWhitespace(reader);
-		}
-		return result;
-	}
-	private ListTag readSkillIds(StringReader reader, String key) throws CommandSyntaxException {
-		ListTag result = new ListTag(); java.util.HashSet<String> seen = new java.util.HashSet<>();
-		expect(reader, '[', "Expected '[' for " + key); skipWhitespace(reader);
-		if (reader.canRead() && reader.peek() == ']') { reader.skip(); return result; }
-		while (true) {
-			int start = reader.getCursor();
-			if (!reader.canRead() || reader.peek() != '"') failAt(reader, start, key + " entries must be quoted");
-			String value = reader.readQuotedString();
-			if (!PmbSkillSchema.isRegisteredSkill(value) || value.equals("air_tracking") || !seen.add(value))
-				failAt(reader, start, "Invalid " + key + " entry: " + value);
-			result.add(StringTag.valueOf(value)); skipWhitespace(reader);
-			if (!reader.canRead()) throw ERROR.createWithContext(reader, "Expected ',' or ']' in " + key);
-			char separator = reader.read(); if (separator == ']') break;
 			if (separator != ',') throw ERROR.createWithContext(reader, "Expected ',' or ']' in " + key);
 			skipWhitespace(reader);
 		}
@@ -202,6 +201,7 @@ public final class PmbSkillParametersArgument implements ArgumentType<PmbSkillPa
 			case STRING -> field.choices().stream().map(value -> "\"" + value + "\"").filter(value -> value.startsWith(prefix)).forEach(builder::suggest);
 			case INTEGER, FLOAT -> { if (field.defaultText().startsWith(prefix)) builder.suggest(field.defaultText(), Component.literal(field.description())); }
 			case ACTIVATION_SOURCES, AMMO_SOURCES -> {
+				if (prefix.isEmpty()) { builder.suggest("["); break; }
 				String[] choices = {"\"mainhand\"", "\"offhand\"", "\"inventory\"", "\"inventory:1..9\"",
 						"\"inventory:7..16\"", "\"inventory:256\""};
 				int leadingWhitespace = leadingWhitespace(remaining);
@@ -220,19 +220,19 @@ public final class PmbSkillParametersArgument implements ArgumentType<PmbSkillPa
 				}
 				result = sourceBuilder;
 			}
-			case SKILL_IDS -> {
-				String[] choices = PmbSkillSchema.all().stream().map(PmbSkillSchema::id)
-						.filter(id -> !id.equals("air_tracking")).toArray(String[]::new);
-				int leadingWhitespace = leadingWhitespace(remaining); String listText = remaining.substring(leadingWhitespace);
-				int base = builder.getStart() + leadingWhitespace; int entry = sourceEntryOffset(listText);
-				String prefixEntry = listText.substring(entry);
-				SuggestionsBuilder listBuilder;
-				if (isCompleteSkillId(prefixEntry.trim())) {
-					listBuilder = builder.createOffset(base + listText.length()); listBuilder.suggest(","); listBuilder.suggest("]");
-				} else { listBuilder = builder.createOffset(base + entry);
-					for (String choice : choices) { String quoted = "\"" + choice + "\""; if (quoted.startsWith(prefixEntry)) listBuilder.suggest(quoted); }
+			case STRING_LIST -> {
+				if (prefix.isEmpty()) { builder.suggest("["); break; }
+				int leading = leadingWhitespace(remaining);
+				String list = remaining.substring(leading);
+				int entry = sourceEntryOffset(list);
+				String valuePrefix = list.substring(entry);
+				result = builder.createOffset(builder.getStart() + leading + entry);
+				for (String choice : field.choices()) {
+					String rendered = "\"" + choice + "\"";
+					if (rendered.startsWith(valuePrefix) && !list.substring(0, entry).contains(rendered)) result.suggest(rendered);
 				}
-				result = listBuilder;
+				if (valuePrefix.endsWith("\"") && valuePrefix.length() > 1)
+					result = builder.createOffset(builder.getStart() + remaining.length()).suggest(",").suggest("]");
 			}
 		}
 		return result;
@@ -250,11 +250,6 @@ public final class PmbSkillParametersArgument implements ArgumentType<PmbSkillPa
 			return !reader.canRead() && PmbSkillSchema.validSource(value);
 		} catch (CommandSyntaxException ignored) { return false; }
 	}
-	private static boolean isCompleteSkillId(String text) {
-		try { StringReader reader = new StringReader(text); if (!reader.canRead() || reader.peek() != '"') return false;
-			String value = reader.readQuotedString(); return !reader.canRead() && PmbSkillSchema.isRegisteredSkill(value)
-					&& !value.equals("air_tracking"); } catch (CommandSyntaxException ignored) { return false; }
-	}
 	private static int sourceEntryOffset(String text) {
 		int offset = text.startsWith("[") ? 1 : 0; boolean quoted = false;
 		for (int i = 0; i < text.length(); i++) {
@@ -267,35 +262,40 @@ public final class PmbSkillParametersArgument implements ArgumentType<PmbSkillPa
 	}
 
 	private static int currentEntryOffset(String text) {
-		int depth = 0; boolean quoted = false; int offset = text.startsWith("[") ? 1 : 0;
+		int depth = 0; int compounds = 0; boolean quoted = false; int offset = text.startsWith("[") ? 1 : 0;
 		for (int i = 0; i < text.length(); i++) {
 			char c = text.charAt(i);
 			if (c == '"' && (i == 0 || text.charAt(i - 1) != '\\')) quoted = !quoted;
 			if (quoted) continue;
-			if (c == '[') depth++; else if (c == ']') depth--; else if (c == ',' && depth == 1) offset = i + 1;
+			if (c == '[') depth++; else if (c == ']') depth--;
+			else if (c == '{') compounds++; else if (c == '}') compounds--;
+			else if (c == ',' && depth == 1 && compounds == 0) offset = i + 1;
 		}
 		while (offset < text.length() && Character.isWhitespace(text.charAt(offset))) offset++;
 		return offset;
 	}
 	private static int currentValueEquals(String text) {
-		int start = currentEntryOffset(text); int depth = 0; boolean quoted = false;
+		int start = currentEntryOffset(text); int depth = 0; int compounds = 0; boolean quoted = false;
 		for (int i = start; i < text.length(); i++) {
 			char c = text.charAt(i);
 			if (c == '"' && (i == 0 || text.charAt(i - 1) != '\\')) quoted = !quoted;
-			if (!quoted) { if (c == '[') depth++; else if (c == ']') depth--; else if (c == '=' && depth == 0) return i; }
+			if (!quoted) { if (c == '[') depth++; else if (c == ']') depth--;
+				else if (c == '{') compounds++; else if (c == '}') compounds--;
+				else if (c == '=' && depth == 0 && compounds == 0) return i; }
 		}
 		return -1;
 	}
 	private static String currentKey(String text, int equals) { return text.substring(currentEntryOffset(text), equals).trim(); }
 	private static Set<String> scanUsedKeys(String text) {
 		Set<String> result = new LinkedHashSet<>();
-		int depth = 0; boolean quoted = false; int start = text.startsWith("[") ? 1 : 0;
+		int depth = 0; int compounds = 0; boolean quoted = false; int start = text.startsWith("[") ? 1 : 0;
 		for (int i = 0; i < text.length(); i++) {
 			char c = text.charAt(i);
 			if (c == '"' && (i == 0 || text.charAt(i - 1) != '\\')) quoted = !quoted;
 			if (!quoted) {
 				if (c == '[') depth++; else if (c == ']') depth--;
-				if (c == ',' && depth == 1) {
+				else if (c == '{') compounds++; else if (c == '}') compounds--;
+				if (c == ',' && depth == 1 && compounds == 0) {
 					String entry = text.substring(start, i).trim(); int equals = entry.indexOf('=');
 					String key = (equals < 0 ? entry : entry.substring(0, equals)).trim(); if (!key.isEmpty()) result.add(key);
 					start = i + 1;
@@ -309,7 +309,7 @@ public final class PmbSkillParametersArgument implements ArgumentType<PmbSkillPa
 		return reader.getString().substring(start, reader.getCursor());
 	}
 	private static String readToken(StringReader reader) {
-		int start = reader.getCursor(); while (reader.canRead() && reader.peek() != ',' && reader.peek() != ']' && !Character.isWhitespace(reader.peek())) reader.skip();
+		int start = reader.getCursor(); while (reader.canRead() && reader.peek() != ',' && reader.peek() != ']' && reader.peek() != '}' && !Character.isWhitespace(reader.peek())) reader.skip();
 		return reader.getString().substring(start, reader.getCursor());
 	}
 	private static void skipWhitespace(StringReader reader) { while (reader.canRead() && Character.isWhitespace(reader.peek())) reader.skip(); }

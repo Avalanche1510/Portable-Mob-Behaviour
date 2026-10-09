@@ -8,10 +8,9 @@ public record PmbFactionRules(
 		boolean allowFriendlyFire,
 		boolean groupRevenge,
 		boolean overrideTeamRules,
-		PmbFactionAttitude defaultAttitude,
-		float evasiveSpeedMultiplier) {
+		PmbFactionAttitude defaultAttitude) {
 	public static final PmbFactionRules DEFAULT = new PmbFactionRules(false, true, false, true,
-			PmbFactionAttitude.NEUTRAL, 1.25F);
+			PmbFactionAttitude.NEUTRAL);
 
 	public static final Codec<PmbFactionRules> CODEC = RecordCodecBuilder.create(instance -> instance.group(
 			Codec.BOOL.optionalFieldOf("allowInternalConflict", false).forGetter(PmbFactionRules::allowInternalConflict),
@@ -20,8 +19,6 @@ public record PmbFactionRules(
 			Codec.BOOL.optionalFieldOf("overrideTeamRules", true).forGetter(PmbFactionRules::overrideTeamRules),
 			Codec.STRING.optionalFieldOf("defaultAttitude", "neutral")
 					.xmap(PmbFactionAttitude::parseOrNeutral, PmbFactionAttitude::serializedName)
-					.forGetter(PmbFactionRules::defaultAttitude),
-			Codec.floatRange(0.0F, 100.0F).optionalFieldOf("evasiveSpeedMultiplier", 1.25F)
-					.forGetter(PmbFactionRules::evasiveSpeedMultiplier)
+					.forGetter(PmbFactionRules::defaultAttitude)
 	).apply(instance, PmbFactionRules::new));
 }

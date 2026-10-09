@@ -140,7 +140,10 @@ public abstract class PmbMobShieldMixin extends LivingEntity implements PmbSkill
 				() -> {
 					pmb$shieldLease = PmbSkillItemAccess.acquire(mob, item);
 					if (pmb$shieldLease == null) return PmbSkillScheduler.CommitResult.FAILED;
-					if (!PmbSkillScheduler.of(mob).bind("shield", pmb$shieldLease)) { pmb$shieldLease = null;
+					if (!PmbSkillScheduler.of(mob).bind("shield", pmb$shieldLease)) {
+						if (!pmb$shieldLease.rollback(mob))
+							throw new IllegalStateException("PMB could not roll back an unbound shield equipment swap");
+						pmb$shieldLease = null;
 						return PmbSkillScheduler.CommitResult.FAILED;
 					}
 					pmb$shieldHand = pmb$shieldLease.hand();

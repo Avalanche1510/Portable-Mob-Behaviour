@@ -38,12 +38,30 @@ public final class PmbSkillItemAccess {
 		public boolean fromInventory() { return swap.transfer() == Transfer.INVENTORY_SWAP; }
 		public boolean matches(Mob mob) { return ItemStack.matches(mob.getItemInHand(hand()), actionSnapshot); }
 		public void authorizeAction(Mob mob) { actionSnapshot = mob.getItemInHand(hand()).copy(); }
+		/** Restores the exact pre-acquire layout while no irreversible action has run. */
+		public boolean rollback(Mob mob) {
+			if (swap.transfer() == Transfer.DIRECT) return matches(mob);
+			ItemStack equipped = mob.getItemInHand(hand());
+			if (!ItemStack.matches(equipped, actionSnapshot)) return false;
+			if (swap.transfer() == Transfer.HAND_SWAP) {
+				ItemStack stored = mob.getItemInHand(sourceHand());
+				if (!ItemStack.matches(stored, swap.displacedSnapshot())) return false;
+				mob.setItemInHand(sourceHand(), actionSnapshot.copy());
+			} else {
+				PmbInventory inventory = ((PmbInventoryHolder) mob).pmb$getInventory();
+				ItemStack stored = inventory.get(inventorySlot());
+				if (!ItemStack.matches(stored, swap.displacedSnapshot())) return false;
+				inventory.set(inventorySlot(), actionSnapshot.copy());
+			}
+			mob.setItemInHand(hand(), swap.displacedSnapshot().copy());
+			return true;
+		}
 		String debugSummary() {
 			return "hand=" + hand() + ",transfer=" + transfer() + ",sourceHand=" + sourceHand()
 					+ ",inventorySlot=" + inventorySlot();
 		}
 	}
-	/** Both locations are validated before either write; no original-layout restoration is retained. */
+	/** Both locations are validated before either write; the returned binding can roll back before commit. */
 	public static ActionBinding acquire(Mob mob, Resolved resolved) {
 		if (resolved == null) return null;
 		ItemStack source = switch (resolved.transfer()) {
@@ -135,6 +153,8 @@ public final class PmbSkillItemAccess {
 		if (mob.distanceToSqr(target) > followRange * followRange) return false;
 
 		double distance = mob.distanceTo(target);
+		PmbAiData ai = ((PmbAiHolder) mob).pmb$getAiData();
+		if (traversalMayRetainTarget(ai)) return true;
 		PmbBowAiData bowAi = ((PmbAiHolder) mob).pmb$getAiData().bow();
 		if (bowAi.isEnabled() && !bowAi.requireEyeSight()
 				&& bowAi.canShootAtDistance(distance)
@@ -145,6 +165,13 @@ public final class PmbSkillItemAccess {
 				|| !pearlAi.canThrowAtCombatDistance(distance)) return false;
 		return resolvePreferred(mob, pearlAi.fetchSource(), List.of(InteractionHand.MAIN_HAND, InteractionHand.OFF_HAND),
 				stack -> stack.is(Items.ENDER_PEARL), pearlAi.preferredHand(), "pearl") != null;
+	}
+	static boolean traversalMayRetainTarget(PmbAiData ai) {
+		PmbPathfindingData.Strategy combatPath = ai.pathfinding().strategy(PmbSkillScheduler.Strategy.COMBAT);
+		return ai.traversal().isEnabled() && !combatPath.requireEyeSight()
+				&& combatPath.routeMode() != PmbPathfindingData.RouteMode.VANILLA_ONLY
+				&& (ai.traversal().methods().contains("wind_charge") && ai.windTraversal().isEnabled()
+						|| ai.traversal().methods().contains("ender_pearl") && ai.pearlTraversal().isEnabled());
 	}
 
 	/** True when PMB already owns a bow binding or can resolve one from the configured ordered sources. */

@@ -1,10 +1,7 @@
 package com.pmb.network;
 
-import com.pmb.PortableMobBehaviour;
 import com.pmb.ai.PmbAiHolder;
-import com.pmb.ai.PmbSchedulerHolder;
-import com.pmb.ai.PmbSkillDebugFormatter;
-import com.pmb.ai.PmbSkillDebugSnapshot;
+import com.pmb.ai.PmbPathParticleDebug;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
@@ -12,7 +9,6 @@ import java.util.concurrent.TimeUnit;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
-import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.permissions.Permissions;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
@@ -29,7 +25,11 @@ public final class PmbSkillDebugNetworking {
 				PmbProtocolPackets.SkillDebugRequest.TYPE, PmbProtocolPackets.SkillDebugRequest.CODEC);
 		ServerPlayNetworking.registerGlobalReceiver(PmbProtocolPackets.SkillDebugRequest.TYPE,
 				(payload, context) -> handle(payload, context));
-		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> LAST_REQUEST.remove(handler.player.getUUID()));
+		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
+			LAST_REQUEST.remove(handler.player.getUUID());
+			PmbPathParticleDebug.disconnect(handler.player.getUUID());
+		});
+		PmbPathParticleDebug.initialize();
 	}
 
 	private static void handle(PmbProtocolPackets.SkillDebugRequest payload, ServerPlayNetworking.Context context) {
@@ -41,20 +41,17 @@ public final class PmbSkillDebugNetworking {
 		LAST_REQUEST.put(player.getUUID(), now);
 
 		Entity entity = player.level().getEntity(payload.entityId());
-		if (!(entity instanceof Mob mob) || mob.level() != player.level()) return;
+		if (!(entity instanceof Mob mob) || mob.level() != player.level() || !mob.isAlive()) return;
 		if (!player.isWithinEntityInteractionRange(mob, 0.0D) || !player.hasLineOfSight(mob)) return;
 		if (!((PmbAiHolder) mob).pmb$getAiData().isConfigured()) return;
-
-		PmbSkillDebugSnapshot snapshot = ((PmbSchedulerHolder) mob).pmb$getSkillScheduler().lastDebugSnapshot();
-		String entityType = BuiltInRegistries.ENTITY_TYPE.getKey(mob.getType()).toString();
-		if (snapshot == null) {
-			PortableMobBehaviour.LOGGER.info("{}", PmbSkillDebugFormatter.formatUnavailableForLog(
-					entityType, mob.getId(), mob.getUUID()));
-			player.sendSystemMessage(PmbSkillDebugFormatter.formatUnavailableForChat(
-					entityType, mob.getId(), mob.getUUID()));
-			return;
-		}
-		PortableMobBehaviour.LOGGER.info("{}", snapshot.formatForLog(mob.tickCount));
-		player.sendSystemMessage(snapshot.formatForChat(mob.tickCount));
+		PmbPathParticleDebug.ToggleResult result = PmbPathParticleDebug.toggle(player, mob);
+		player.sendSystemMessage(switch (result) {
+			case ADDED -> net.minecraft.network.chat.Component.translatable(
+					"debug.portable-mob-behaviour.observation.added", mob.getId());
+			case REMOVED -> net.minecraft.network.chat.Component.translatable(
+					"debug.portable-mob-behaviour.observation.removed", mob.getId());
+			case FULL -> net.minecraft.network.chat.Component.translatable(
+					"debug.portable-mob-behaviour.observation.full");
+		});
 	}
 }

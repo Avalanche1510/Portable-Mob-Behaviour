@@ -81,12 +81,7 @@ public final class PmbFactionCommands {
 						.then(Commands.argument("faction", PmbFactionNameArgument.factionName())
 								.then(Commands.argument("attitude", StringArgumentType.word())
 										.executes(context -> setAttitudeRule(context.getSource(), id(context, "faction"),
-												StringArgumentType.getString(context, "attitude"))))))
-				.then(Commands.literal("evasiveSpeedMultiplier")
-						.then(Commands.argument("faction", PmbFactionNameArgument.factionName())
-								.then(Commands.argument("multiplier", FloatArgumentType.floatArg(0.0F, 100.0F))
-										.executes(context -> setSpeedRule(context.getSource(), id(context, "faction"),
-												FloatArgumentType.getFloat(context, "multiplier")))))));
+												StringArgumentType.getString(context, "attitude")))))));
 	}
 
 	private static com.mojang.brigadier.builder.LiteralArgumentBuilder<CommandSourceStack> booleanRule(String rule) {
@@ -99,12 +94,34 @@ public final class PmbFactionCommands {
 
 	private static com.mojang.brigadier.builder.LiteralArgumentBuilder<CommandSourceStack> compatCommands() {
 		return Commands.literal("compat").then(Commands.literal("set")
+				.then(booleanCompatRule("", "brainAiDebug"))
 				.then(Commands.literal("piglin")
 						.then(booleanCompatRule("piglin", "greed"))
 						.then(booleanCompatRule("piglin", "guarding"))
-						.then(booleanCompatRule("piglin", "avoidance")))
+						.then(booleanCompatRule("piglin", "avoidance"))
+						.then(booleanCompatRule("piglin", "unreachableGiveUp"))
+						.then(booleanCompatRule("piglin", "admiringPausesActiveSkills"))
+						.then(stringCompatRule("hurtAdmirationPolicy", "vanilla", "combat", "continue"))
+						.then(Commands.literal("hurtAdmirationDisableTicks")
+								.then(Commands.argument("faction", PmbFactionNameArgument.factionName())
+										.then(Commands.argument("ticks", IntegerArgumentType.integer(0, 72000))
+												.suggests((context, builder) -> net.minecraft.commands.SharedSuggestionProvider
+														.suggest(new String[]{"0", "400"}, builder))
+												.executes(context -> setAdmirationDisableTicks(context.getSource(),
+														id(context, "faction"), IntegerArgumentType.getInteger(context, "ticks"))))))
+						.then(stringCompatRule("hurtAdmiredItemPolicy", "drop", "store")))
 				.then(Commands.literal("breeze")
 						.then(booleanCompatRule("breeze", "windChargeNoAnger"))));
+	}
+
+	private static com.mojang.brigadier.builder.LiteralArgumentBuilder<CommandSourceStack> stringCompatRule(
+			String rule, String... values) {
+		var argument = Commands.argument("faction", PmbFactionNameArgument.factionName());
+		for (String value : values) {
+			argument.then(Commands.literal(value).executes(context ->
+					setStringCompatRule(context.getSource(), id(context, "faction"), rule, value)));
+		}
+		return Commands.literal(rule).then(argument);
 	}
 
 	private static com.mojang.brigadier.builder.LiteralArgumentBuilder<CommandSourceStack> booleanCompatRule(
@@ -252,10 +269,16 @@ public final class PmbFactionCommands {
 		return success(source, id + " Rules{allowInternalConflict:" + rules.allowInternalConflict()
 				+ ",allowFriendlyFire:" + rules.allowFriendlyFire() + ",groupRevenge:" + rules.groupRevenge()
 				+ ",overrideTeamRules:" + rules.overrideTeamRules() + ",defaultAttitude:"
-				+ rules.defaultAttitude().serializedName() + ",evasiveSpeedMultiplier:" + rules.evasiveSpeedMultiplier()
+				+ rules.defaultAttitude().serializedName()
 				+ "} VanillaCompatRules{piglin:{greed:" + compat.piglin().greed()
-				+ ",guarding:" + compat.piglin().guarding() + ",avoidance:" + compat.piglin().avoidance() + "}"
+				+ ",guarding:" + compat.piglin().guarding() + ",avoidance:" + compat.piglin().avoidance()
+				+ ",unreachableGiveUp:" + compat.piglin().unreachableGiveUp()
+				+ ",admiringPausesActiveSkills:" + compat.piglin().admiringPausesActiveSkills()
+				+ ",hurtAdmirationPolicy:" + compat.piglin().hurtAdmirationPolicy()
+				+ ",hurtAdmirationDisableTicks:" + compat.piglin().hurtAdmirationDisableTicks()
+				+ ",hurtAdmiredItemPolicy:" + compat.piglin().hurtAdmiredItemPolicy() + "}"
 				+ ",breeze:{windChargeNoAnger:" + compat.breeze().windChargeNoAnger() + "}"
+				+ ",brainAiDebug:" + compat.brainAiDebug()
 				+ "} Relationships:" + definition.relationships().size() + " Players:" + definition.players().size(), 1);
 	}
 
@@ -265,18 +288,38 @@ public final class PmbFactionCommands {
 		PmbPiglinCompatRules piglin = old.piglin();
 		PmbBreezeCompatRules breeze = old.breeze();
 		PmbVanillaCompatRules updated = switch (group + "." + rule) {
-			case "piglin.greed" -> new PmbVanillaCompatRules(
-					new PmbPiglinCompatRules(value, piglin.guarding(), piglin.avoidance()), breeze);
-			case "piglin.guarding" -> new PmbVanillaCompatRules(
-					new PmbPiglinCompatRules(piglin.greed(), value, piglin.avoidance()), breeze);
-			case "piglin.avoidance" -> new PmbVanillaCompatRules(
-					new PmbPiglinCompatRules(piglin.greed(), piglin.guarding(), value), breeze);
-			case "breeze.windChargeNoAnger" -> new PmbVanillaCompatRules(
-					piglin, new PmbBreezeCompatRules(value));
+			case ".brainAiDebug" -> old.withBrainAiDebug(value);
+			case "piglin.greed" -> old.withPiglin(piglin.withGreed(value));
+			case "piglin.guarding" -> old.withPiglin(piglin.withGuarding(value));
+			case "piglin.avoidance" -> old.withPiglin(piglin.withAvoidance(value));
+			case "piglin.unreachableGiveUp" -> old.withPiglin(piglin.withUnreachableGiveUp(value));
+			case "piglin.admiringPausesActiveSkills" -> old.withPiglin(piglin.withAdmiringPausesActiveSkills(value));
+			case "breeze.windChargeNoAnger" -> old.withBreeze(new PmbBreezeCompatRules(value));
 			default -> throw error("Unknown vanilla compatibility rule: " + group + "." + rule);
 		};
 		data(source).update(id, faction -> faction.withVanillaCompatRules(updated));
 		return success(source, "Set " + id + " VanillaCompatRules." + group + "." + rule + " to " + value, 1);
+	}
+
+	private static int setStringCompatRule(CommandSourceStack source, String id, String rule, String value)
+			throws CommandSyntaxException {
+		PmbVanillaCompatRules old = requireFaction(source, id).vanillaCompatRules();
+		PmbPiglinCompatRules piglin = old.piglin();
+		PmbVanillaCompatRules updated = switch (rule) {
+			case "hurtAdmirationPolicy" -> old.withPiglin(piglin.withHurtAdmirationPolicy(value));
+			case "hurtAdmiredItemPolicy" -> old.withPiglin(piglin.withHurtAdmiredItemPolicy(value));
+			default -> throw error("Unknown vanilla compatibility rule: " + rule);
+		};
+		data(source).update(id, faction -> faction.withVanillaCompatRules(updated));
+		return success(source, "Set " + id + " VanillaCompatRules.piglin." + rule + " to " + value, 1);
+	}
+
+	private static int setAdmirationDisableTicks(CommandSourceStack source, String id, int ticks)
+			throws CommandSyntaxException {
+		PmbVanillaCompatRules old = requireFaction(source, id).vanillaCompatRules();
+		data(source).update(id, faction -> faction.withVanillaCompatRules(
+				old.withPiglin(old.piglin().withHurtAdmirationDisableTicks(ticks))));
+		return success(source, "Set " + id + " VanillaCompatRules.piglin.hurtAdmirationDisableTicks to " + ticks, 1);
 	}
 
 	private static int setBooleanRule(CommandSourceStack source, String id, String rule, boolean value)
@@ -284,13 +327,13 @@ public final class PmbFactionCommands {
 		PmbFactionRules old = requireFaction(source, id).rules();
 		PmbFactionRules updated = switch (rule) {
 			case "allowInternalConflict" -> new PmbFactionRules(value, old.allowFriendlyFire(), old.groupRevenge(),
-					old.overrideTeamRules(), old.defaultAttitude(), old.evasiveSpeedMultiplier());
+					old.overrideTeamRules(), old.defaultAttitude());
 			case "allowFriendlyFire" -> new PmbFactionRules(old.allowInternalConflict(), value, old.groupRevenge(),
-					old.overrideTeamRules(), old.defaultAttitude(), old.evasiveSpeedMultiplier());
+					old.overrideTeamRules(), old.defaultAttitude());
 			case "groupRevenge" -> new PmbFactionRules(old.allowInternalConflict(), old.allowFriendlyFire(), value,
-					old.overrideTeamRules(), old.defaultAttitude(), old.evasiveSpeedMultiplier());
+					old.overrideTeamRules(), old.defaultAttitude());
 			case "overrideTeamRules" -> new PmbFactionRules(old.allowInternalConflict(), old.allowFriendlyFire(),
-					old.groupRevenge(), value, old.defaultAttitude(), old.evasiveSpeedMultiplier());
+					old.groupRevenge(), value, old.defaultAttitude());
 			default -> throw error("Unknown rule: " + rule);
 		};
 		data(source).update(id, faction -> faction.withRules(updated));
@@ -301,17 +344,9 @@ public final class PmbFactionCommands {
 		PmbFactionRules old = requireFaction(source, id).rules();
 		PmbFactionAttitude attitude = parseAttitude(value);
 		PmbFactionRules updated = new PmbFactionRules(old.allowInternalConflict(), old.allowFriendlyFire(),
-				old.groupRevenge(), old.overrideTeamRules(), attitude, old.evasiveSpeedMultiplier());
+				old.groupRevenge(), old.overrideTeamRules(), attitude);
 		data(source).update(id, faction -> faction.withRules(updated));
 		return success(source, "Set " + id + " defaultAttitude to " + attitude.serializedName(), 1);
-	}
-
-	private static int setSpeedRule(CommandSourceStack source, String id, float value) throws CommandSyntaxException {
-		PmbFactionRules old = requireFaction(source, id).rules();
-		PmbFactionRules updated = new PmbFactionRules(old.allowInternalConflict(), old.allowFriendlyFire(),
-				old.groupRevenge(), old.overrideTeamRules(), old.defaultAttitude(), value);
-		data(source).update(id, faction -> faction.withRules(updated));
-		return success(source, "Set " + id + " evasiveSpeedMultiplier to " + value, 1);
 	}
 
 	private static int putRelationship(CommandSourceStack source, String id, int index, boolean replace,

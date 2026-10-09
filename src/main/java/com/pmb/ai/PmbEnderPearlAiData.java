@@ -40,6 +40,7 @@ public class PmbEnderPearlAiData implements PmbSkillConfigData {
 	private float maxThrowPower = DEFAULT_MAX_THROW_POWER;
 	private float throwAngle = DEFAULT_THROW_ANGLE;
 	private boolean doConsume = DEFAULT_DO_CONSUME;
+	private boolean doTeleportDamage;
 	private boolean requireEyeSight = DEFAULT_REQUIRE_EYE_SIGHT;
 	private int randomCooldownBias = PmbSkillTiming.DEFAULT_RANDOM_COOLDOWN_BIAS;
 	private int throwCooldown;
@@ -86,6 +87,7 @@ public class PmbEnderPearlAiData implements PmbSkillConfigData {
 	public boolean doConsume() {
 		return doConsume;
 	}
+	public boolean doTeleportDamage() { return doTeleportDamage; }
 
 	public boolean requireEyeSight() {
 		return requireEyeSight;
@@ -129,7 +131,7 @@ public class PmbEnderPearlAiData implements PmbSkillConfigData {
 		if (pearlInput.contains("preferredHand")) explicitFields.add("preferredHand");
 		if (fetchSource.isExplicit()) explicitFields.add("FetchSource");
 		for (String key : new String[] {"enable", "minThrowRange", "maxThrowRange", "throwChance", "throwCooldownTicks",
-				"throwAccuracy", "maxThrowPower", "throwAngle", "doConsume", "requireEyeSight", "randomCooldownBias"})
+				"throwAccuracy", "maxThrowPower", "throwAngle", "doConsume", "doTeleportDamage", "requireEyeSight", "randomCooldownBias"})
 			if (PmbAiNbtReader.hasField(pearlInput, key)) explicitFields.add(key);
 		if (!explicitFields.contains("maxThrowRange") && PmbAiNbtReader.hasField(pearlInput, "throwRange")) explicitFields.add("maxThrowRange");
 		if (!explicitFields.contains("maxThrowPower") && PmbAiNbtReader.hasField(pearlInput, "throwPower")) explicitFields.add("maxThrowPower");
@@ -146,6 +148,7 @@ public class PmbEnderPearlAiData implements PmbSkillConfigData {
 				0.1F, 10.0F);
 		throwAngle = clamp(getFloatOr(pearlInput, "throwAngle", DEFAULT_THROW_ANGLE), 1.0F, 89.0F);
 		doConsume = getBooleanOr(pearlInput, "doConsume", DEFAULT_DO_CONSUME);
+		doTeleportDamage = getBooleanOr(pearlInput, "doTeleportDamage", false);
 		requireEyeSight = getBooleanOr(pearlInput, "requireEyeSight", DEFAULT_REQUIRE_EYE_SIGHT);
 		randomCooldownBias = clamp(getIntOr(pearlInput, "randomCooldownBias",
 				PmbSkillTiming.DEFAULT_RANDOM_COOLDOWN_BIAS), 0, PmbSkillTiming.MAX_RANDOM_COOLDOWN_BIAS);
@@ -164,6 +167,7 @@ public class PmbEnderPearlAiData implements PmbSkillConfigData {
 		if (explicitFields.contains("maxThrowPower")) output.putFloat("maxThrowPower", maxThrowPower);
 		if (explicitFields.contains("throwAngle")) output.putFloat("throwAngle", throwAngle);
 		if (explicitFields.contains("doConsume")) output.putBoolean("doConsume", doConsume);
+		if (explicitFields.contains("doTeleportDamage")) output.putBoolean("doTeleportDamage", doTeleportDamage);
 		if (explicitFields.contains("requireEyeSight")) output.putBoolean("requireEyeSight", requireEyeSight);
 		if (explicitFields.contains("randomCooldownBias")) output.putInt("randomCooldownBias", randomCooldownBias);
 	}
@@ -184,6 +188,7 @@ public class PmbEnderPearlAiData implements PmbSkillConfigData {
 		maxThrowPower = DEFAULT_MAX_THROW_POWER;
 		throwAngle = DEFAULT_THROW_ANGLE;
 		doConsume = DEFAULT_DO_CONSUME;
+		doTeleportDamage = false;
 		requireEyeSight = DEFAULT_REQUIRE_EYE_SIGHT;
 		randomCooldownBias = PmbSkillTiming.DEFAULT_RANDOM_COOLDOWN_BIAS;
 		throwCooldown = 0;

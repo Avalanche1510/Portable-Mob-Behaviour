@@ -18,13 +18,16 @@ import net.minecraft.world.level.storage.ValueOutput;
 
 /** Persisted per-strategy skill ordering. Each inner list is one equal-priority tier. */
 public final class PmbSkillPriorities {
-	public static final String TAG = "skillPriorities";
+	public static final String TAG = "priorities";
 	public static final String VANILLA = "vanilla";
-	private static final List<String> IDS = List.of("mace", "ender_pearl", "wind_charge", "air_tracking", "bow", "shield", VANILLA);
+	private static final List<String> IDS = List.of("mace", "fall_rescue", "ender_pearl", "wind_charge",
+			"traversal", "bow", "shield", VANILLA);
 	private static final Map<PmbSkillScheduler.Strategy, List<List<String>>> DEFAULTS = Map.of(
-			PmbSkillScheduler.Strategy.COMBAT, tiers("mace", "ender_pearl", "wind_charge", "air_tracking", "bow", "shield", VANILLA),
-			PmbSkillScheduler.Strategy.RETREAT, tiers("ender_pearl", "wind_charge", "air_tracking", VANILLA),
-			PmbSkillScheduler.Strategy.IDLE, tiers(VANILLA));
+			PmbSkillScheduler.Strategy.COMBAT, tiers("mace", "fall_rescue", "ender_pearl", "wind_charge",
+					"traversal", "bow", "shield", VANILLA),
+			PmbSkillScheduler.Strategy.RETREAT, tiers("fall_rescue", "ender_pearl", "wind_charge",
+					"traversal", VANILLA),
+			PmbSkillScheduler.Strategy.IDLE, tiers("fall_rescue", "traversal", VANILLA));
 	private final EnumMap<PmbSkillScheduler.Strategy, List<List<String>>> overrides =
 			new EnumMap<>(PmbSkillScheduler.Strategy.class);
 

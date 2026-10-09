@@ -98,21 +98,32 @@ public abstract class PmbMobMaceMixin extends LivingEntity implements PmbSkillHo
 					PmbSkillItemAccess.ActionBinding lease = PmbSkillItemAccess.acquire(mob, item);
 					if (lease == null) return PmbSkillScheduler.CommitResult.FAILED;
 					if (!scheduler.bind("mace", lease)) {
+						lease.rollback(mob);
 						return PmbSkillScheduler.CommitResult.FAILED;
 					}
 					pmb$faceMaceTarget(mob, target);
-					swing(InteractionHand.MAIN_HAND, true);
 					pmb$performingMaceSmash = true;
+					boolean hit = false;
 					try {
-						mob.doHurtTarget(serverLevel, target);
-						scheduler.markCurrentCandidateExecuted("mace");
+						hit = mob.doHurtTarget(serverLevel, target);
+						if (hit) {
+							// Vanilla player mace smashes begin a new fall-distance cycle after
+							// the hit. Keep the completed hit's damage calculation intact.
+							mob.resetFallDistance();
+							scheduler.impulseSessions().armAppliedImpulse(mob, "mace", 4);
+							swing(InteractionHand.MAIN_HAND, true);
+							scheduler.airTracking().commitEntity(mob, "mace", target, false);
+							lease.authorizeAction(mob);
+							scheduler.markCurrentCandidateExecuted("mace");
+						}
 					}
 					finally {
 						pmb$performingMaceSmash = false;
-						lease.authorizeAction(mob);
+						if (!hit && !lease.rollback(mob))
+							throw new IllegalStateException("PMB could not roll back an uncommitted mace equipment swap");
 						scheduler.release(mob, "mace");
 					}
-					return PmbSkillScheduler.CommitResult.COMMITTED;
+					return hit ? PmbSkillScheduler.CommitResult.COMMITTED : PmbSkillScheduler.CommitResult.FAILED;
 				}, resources);
 	}
 
