@@ -55,12 +55,10 @@ PmbFaction是服务端持久实体NBT，可直接写入summon数据，例如`/su
 
 ## 资源指南：
 
-[模组文档](https://github.com/Avalanche1510/Portable-Mob-Behaviour/blob/26.1.1/Docs/模组文档.md)  
-[更新日志](https://github.com/Avalanche1510/Portable-Mob-Behaviour/blob/26.1.1/ChangeLog/更新日志.md)
+[模组文档](Docs/模组文档.md)  
+[更新日志](ChangeLog/更新日志.md)
 
 该模组包含AI生成的代码。
-
-~~请在issues提醒我，如果我忘记了更新这个分支的链接！~~
 
 
 </details>
@@ -141,11 +139,10 @@ Migration notice: old `wind_charge.inAirTrackStrength` and `wind_charge.inAirTra
 
 ## Resource Guide:
 
-[Documentation](https://github.com/Avalanche1510/Portable-Mob-Behaviour/blob/26.1.1/Docs/docs.md)  
-[Change Log](https://github.com/Avalanche1510/Portable-Mob-Behaviour/blob/26.1.1/ChangeLog/changelog.md)
+[Documentation](Docs/docs.md)  
+[Change Log](ChangeLog/changelog.md)
 
 This mod includes AI-generated code.
 
-~~plz remind me in issues if I forget to update the links in each branch !~~
 
 </details>
